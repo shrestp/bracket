@@ -7,6 +7,7 @@
   --bg:#eef2ee; --surface:#ffffff; --surface-2:#f6f8f5; --ink:#13241b; --muted:#5a6d62; --line:#d4ddd6;
   --cloth:#1d6a48; --cloth-ink:#ffffff; --chalk:#2a78cf; --chalk-soft:#dcebfa;
   --danger:#b4372d; --danger-soft:#f7e2df; --warn:#9a6411; --warn-soft:#f6ecd8; --chip-empty:#cbd5ce;
+  --win:#1f8a52; --win-soft:#daf2e3;
   --f-display:"Big Shoulders Display","Arial Narrow",Impact,sans-serif;
   --f-body:"Figtree",system-ui,-apple-system,"Segoe UI",sans-serif;
   --r:10px;
@@ -14,11 +15,14 @@
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
   --bg:#0c1511; --surface:#142019; --surface-2:#18261e; --ink:#e4eee8; --muted:#90a497; --line:#24362c;
   --cloth:#2f9a68; --cloth-ink:#06120c; --chalk:#5ea6f2; --chalk-soft:#17304a;
-  --danger:#ef7166; --danger-soft:#3a1c19; --warn:#e2ad55; --warn-soft:#33270f; --chip-empty:#2b3d33; color-scheme:dark}}
+  --danger:#ef7166; --danger-soft:#3a1c19; --warn:#e2ad55; --warn-soft:#33270f; --chip-empty:#2b3d33;
+  --win:#3cc77f; --win-soft:#11331f; color-scheme:dark}}
 :root[data-theme="dark"]{
   --bg:#0c1511; --surface:#142019; --surface-2:#18261e; --ink:#e4eee8; --muted:#90a497; --line:#24362c;
   --cloth:#2f9a68; --cloth-ink:#06120c; --chalk:#5ea6f2; --chalk-soft:#17304a;
-  --danger:#ef7166; --danger-soft:#3a1c19; --warn:#e2ad55; --warn-soft:#33270f; --chip-empty:#2b3d33; color-scheme:dark}
+  --danger:#ef7166; --danger-soft:#3a1c19; --warn:#e2ad55; --warn-soft:#33270f; --chip-empty:#2b3d33;
+  --win:#3cc77f; --win-soft:#11331f; color-scheme:dark}
+:root[data-theme="light"]{color-scheme:light}
 body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.45}
 *{box-sizing:border-box}
 button,input,select,textarea{font:inherit;color:inherit}
@@ -73,7 +77,17 @@ h2{font-family:var(--f-display);font-weight:800;font-size:24px;text-transform:up
 .tbody{padding:12px;display:flex;flex-direction:column;gap:10px}
 .pbtn{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;text-align:left;border:1px solid var(--line);background:var(--surface-2);border-radius:8px;padding:10px 12px;min-height:56px}
 .pbtn:not(:disabled):hover{border-color:var(--cloth)}
-.pbtn.sel{border-color:var(--cloth);background:var(--chalk-soft);box-shadow:inset 0 0 0 1px var(--cloth)}
+.pbtn.sel{border-color:var(--win);background:var(--win-soft);box-shadow:inset 0 0 0 1px var(--win);animation:winflash 3s ease-out both}
+@keyframes winflash{0%,60%{background:var(--win);color:#fff;border-color:var(--win);box-shadow:0 0 0 4px color-mix(in srgb,var(--win) 30%,transparent)}100%{background:var(--win-soft);color:var(--ink);border-color:var(--win);box-shadow:inset 0 0 0 1px var(--win)}}
+.wtag{font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;padding:2px 7px;border-radius:999px;background:var(--win);color:#fff;margin-left:8px;vertical-align:2px}
+.pbtn.lose{opacity:.7}
+.result{display:flex;align-items:center;gap:10px;padding:12px 14px;border-radius:8px;background:var(--win);color:#fff;font-weight:600;animation:resultfade 3s ease-in both}
+.result b{font-weight:800}
+.result .tick{width:22px;height:22px;border-radius:50%;background:#fff;color:var(--win);display:grid;place-items:center;font-weight:900;flex:none}
+@keyframes resultfade{0%,80%{opacity:1}100%{opacity:0}}
+.seg{display:inline-flex;border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:3px;gap:2px}
+.seg button{border:0;background:none;border-radius:999px;padding:4px 11px;font-size:13px;font-weight:600;color:var(--muted);min-height:30px}
+.seg button.on{background:var(--ink);color:var(--bg)}
 .pbtn:disabled{cursor:default;opacity:1}
 .pname{font-weight:700;font-size:16px;min-width:0;overflow-wrap:anywhere}
 .vs{font-family:var(--f-display);font-weight:600;color:var(--muted);text-align:center;font-size:14px;letter-spacing:.1em;text-transform:uppercase;line-height:1}
@@ -168,8 +182,19 @@ if(!S||!S.v)S=blankState();
 
 var mode='connecting'; // connecting | shared | local | readonly
 var art=null, saving=false, flash=null;
-var ui={tab:'tables',pending:null,edit:null,confirm:null,histAll:false};
-try{var su=JSON.parse(sessionStorage.getItem(SS_UI)||'null');if(su){ui.tab=su.tab||'tables';flash=su.flash||null;sessionStorage.removeItem(SS_UI)}}catch(e){}
+var ui={tab:'tables',pending:null,edit:null,confirm:null,histAll:false,last:null};
+try{var su=JSON.parse(sessionStorage.getItem(SS_UI)||'null');if(su){ui.tab=su.tab||'tables';flash=su.flash||null;if(su.last){ui.last=su.last;ui.last.at=Date.now()}sessionStorage.removeItem(SS_UI)}}catch(e){}
+
+/* theme: auto follows the device; light/dark is remembered on this device */
+var LS_THEME='pct.theme', hostTheme=document.documentElement.getAttribute('data-theme');
+var theme=lsGet(LS_THEME)||'auto';
+function applyTheme(){
+  var r=document.documentElement;
+  if(theme==='light'||theme==='dark')r.setAttribute('data-theme',theme);
+  else if(hostTheme)r.setAttribute('data-theme',hostTheme);
+  else r.removeAttribute('data-theme');
+}
+applyTheme();
 
 var EXAMPLES=[['Marcus',2],['Tasha',3],['Dev',3],['Rosa',4],['Kenji',2],['Lena',4],['Omar',3],['Priya',4]];
 var draft=lsGet(LS_DRAFT);
@@ -256,7 +281,7 @@ function renderDoc(st){
     '<script type="application/json" id="tstate">'+json+SC+'\n'+
     '<script id="app">'+app+SC+'</body></html>';
 }
-function stashUI(msg){try{sessionStorage.setItem(SS_UI,JSON.stringify({tab:ui.tab,flash:msg||null}))}catch(e){}}
+function stashUI(msg){try{sessionStorage.setItem(SS_UI,JSON.stringify({tab:ui.tab,flash:msg||null,last:msg?null:ui.last}))}catch(e){}}
 function commit(next,attempt){
   if(saving&&!attempt)return;
   next.updatedAt=Date.now();
@@ -281,13 +306,16 @@ function act(name,el){
   var ds=el.dataset, st;
   switch(name){
     case 'tab':ui.tab=ds.v;render();break;
-    case 'pick':if(!canAct())return;ui.pending={m:ds.m,w:ds.w};render();break;
+    case 'pick':if(!canAct())return;if(!(ui.pending&&ui.pending.m===ds.m&&ui.pending.w===ds.w))ui.pending={m:ds.m,w:ds.w,at:Date.now()};render();break;
     case 'unpick':ui.pending=null;ui.confirm=null;render();break;
     case 'win':
       st=clone(S);var m=st.matches.find(function(x){return x.id===ds.m});
       if(!m||m.status!=='live'){flash='That match was already scored.';render();return}
       m.status='done';m.winner=ds.w;st.endSeq=(st.endSeq||0)+1;m.endedSeq=st.endSeq;m.endedAt=Date.now();
+      var dd=derive(st),Wp=dd.P[ds.w],Lp=dd.P[ds.w===m.a?m.b:m.a];
+      ui.last={w:Wp.name,l:Lp.name,table:m.table,left:Lp.cur,at:Date.now()};
       commit(normalize(st));break;
+    case 'theme':theme=ds.v;lsSet(LS_THEME,theme);applyTheme();render();break;
     case 'ask':ui.confirm=ds.v;render();break;
     case 'cancelMatch':
       st=clone(S);m=st.matches.find(function(x){return x.id===ds.m});
@@ -389,7 +417,8 @@ function header(sub){
   if(mode==='shared'||mode==='local'){
     tools=location.hash==='#view'?'<button class="btn small" data-act="viewOff">Back to director controls</button>':(S.phase!=='setup'?'<button class="btn small" data-act="viewOn">Preview player view</button>':'');
   }
-  return '<div class="top"><div><div class="eyebrow">'+h(sub)+'</div><h1>'+h(S.phase==='setup'&&canAct()?(draft.title||'Pool Chip Tournament'):S.title)+'</h1></div><div class="top-actions">'+modeChip()+tools+'</div></div>'+
+  var seg='<div class="seg" role="group" aria-label="Theme">'+[['auto','Auto'],['light','Light'],['dark','Dark']].map(function(o){return '<button data-act="theme" data-v="'+o[0]+'" class="'+(theme===o[0]?'on':'')+'" aria-pressed="'+(theme===o[0])+'">'+o[1]+'</button>'}).join('')+'</div>';
+  return '<div class="top"><div><div class="eyebrow">'+h(sub)+'</div><h1>'+h(S.phase==='setup'&&canAct()?(draft.title||'Pool Chip Tournament'):S.title)+'</h1></div><div class="top-actions">'+modeChip()+seg+tools+'</div></div>'+
     (flash?'<div class="flash" role="status">'+h(flash)+'</div>':'');
 }
 
@@ -422,8 +451,10 @@ function tableCards(d){
     var m=live[t];
     if(m){
       var A=d.P[m.a],B=d.P[m.b],pend=ui.pending&&ui.pending.m===m.id?ui.pending.w:null,can=canAct();
-      var pb=function(p){return '<button class="pbtn'+(pend===p.id?' sel':'')+'" data-act="pick" data-m="'+m.id+'" data-w="'+p.id+'" '+(can?'':'disabled')+'><span class="pname">'+h(p.name)+'</span>'+chipsHTML(p.cur,p.chips)+'</button>'};
-      out+='<article class="tcard"><header><span class="tl">Table '+t+'</span><span class="tm">Match '+m.n+' · <span class="elapsed" data-t="'+m.startedAt+'">'+mins(m.startedAt)+'</span></span></header><div class="tbody">'+pb(A)+'<div class="vs">vs</div>'+pb(B)+
+      var pb=function(p){var sel=pend===p.id,lose=pend&&!sel,delay=sel&&ui.pending.at?' style="animation-delay:-'+Math.min(3000,Date.now()-ui.pending.at)+'ms"':'';
+        return '<button class="pbtn'+(sel?' sel':'')+(lose?' lose':'')+'"'+delay+' data-act="pick" data-m="'+m.id+'" data-w="'+p.id+'" '+(can?'':'disabled')+'><span class="pname">'+h(p.name)+(sel?'<span class="wtag">Winner</span>':'')+'</span>'+chipsHTML(p.cur,p.chips)+'</button>'};
+      var top=A,bot=B;if(pend===m.b){top=B;bot=A}
+      out+='<article class="tcard"><header><span class="tl">Table '+t+'</span><span class="tm">Match '+m.n+' · <span class="elapsed" data-t="'+m.startedAt+'">'+mins(m.startedAt)+'</span></span></header><div class="tbody">'+pb(top)+'<div class="vs">'+(pend?'beat':'vs')+'</div>'+pb(bot)+
         (pend?'<div class="confirm"><p>'+h(d.P[pend].name)+' wins. '+h(d.P[pend===m.a?m.b:m.a].name)+' loses a chip.</p><button class="btn primary small" data-act="win" data-m="'+m.id+'" data-w="'+pend+'">Confirm</button><button class="btn small" data-act="unpick">Cancel</button></div>':'')+
         '</div>'+(can?'<div class="tfoot"><span>'+(pend?'':'Tap the winner')+'</span>'+(ui.confirm==='cm'+m.id?'<span><button class="link danger" data-act="cancelMatch" data-m="'+m.id+'">Yes, cancel match</button> <button class="link" data-act="unpick">Keep</button></span>':'<button class="link" data-act="ask" data-v="cm'+m.id+'">Cancel match</button>')+'</div>':'')+'</article>';
     }else{
@@ -498,7 +529,9 @@ function renderRunning(){
   var can=canAct();
   var settings=can&&!done?'<div class="rowflex" style="font-size:14px"><span class="stepper" aria-label="Tables"><button data-act="tables" data-d="-1" aria-label="Remove a table" '+(S.tables<=1?'disabled':'')+'>−</button><output>'+S.tables+'</output><button data-act="tables" data-d="1" aria-label="Add a table" '+(S.tables>=12?'disabled':'')+'>+</button></span>'+
     '<label class="hint" style="display:flex;gap:6px;align-items:center">Draw pace <select class="in" id="lead-sel" style="min-height:36px;padding:4px 8px;width:auto"><option value="1"'+(S.leadLimit===1?' selected':'')+'>Strict rounds</option><option value="2"'+(S.leadLimit===2?' selected':'')+'>Balanced</option><option value="99"'+(S.leadLimit===99?' selected':'')+'>Fastest</option></select></label></div>':'';
-  var pTables=done?'':'<section class="panel'+(ui.tab==='tables'?' on':'')+'"><div class="sec-head"><h2>Tables</h2>'+(can?'<span class="hint">Tap the winner, then confirm</span>':'<span class="hint">Updates by itself</span>')+'</div><div class="tables">'+tableCards(d)+'</div>'+settings+'</section>';
+  var res='',age=ui.last?Date.now()-ui.last.at:1e9;
+  if(age<3000){var L=ui.last;res='<div class="result" role="status" style="animation-delay:-'+age+'ms"><span class="tick">✓</span><span><b>'+h(L.w)+'</b> beat '+h(L.l)+' on table '+L.table+'. '+h(L.l)+(L.left>0?' has '+L.left+' chip'+(L.left===1?'':'s')+' left.':' is out.')+'</span></div>'}
+  var pTables=done?'':'<section class="panel'+(ui.tab==='tables'?' on':'')+'"><div class="sec-head"><h2>Tables</h2>'+(can?'<span class="hint">Tap the winner, then confirm</span>':'<span class="hint">Updates by itself</span>')+'</div>'+res+'<div class="tables">'+tableCards(d)+'</div>'+settings+'</section>';
   var pStand='<section class="panel'+(ui.tab==='standings'||(done&&ui.tab==='tables')?' on':'')+'"><div class="sec-head"><h2>'+(done?'Final standings':'Chip count')+'</h2>'+(can&&!done?'<span class="hint">Tap a name to adjust</span>':'')+'</div><div class="standings">'+standings(d,done)+'</div></section>';
   var pHist='<section class="panel history'+(ui.tab==='history'?' on':'')+'"><div class="sec-head"><h2>Match log</h2><span class="hint">Newest first</span></div><div class="log">'+historyRows(d)+'</div></section>';
   var resetBlock='';
@@ -509,9 +542,12 @@ function renderRunning(){
   return header(done?'Final':'In progress')+win+stats+tabs+'<div class="grid">'+pTables+pStand+pHist+'</div>'+resetBlock;
 }
 
+var lastTimer=null;
 function render(){
   var html=S.phase==='setup'?renderSetup():renderRunning();
   root.innerHTML='<div class="wrap">'+html+'</div>'+(saving?'<div class="saving-veil" aria-hidden="true"></div>':'');
+  if(ui.last&&!lastTimer){var left=3000-(Date.now()-ui.last.at);
+    if(left>0)lastTimer=setTimeout(function(){lastTimer=null;var r=root.querySelector('.result');if(r)r.remove();ui.last=null},left+50);else ui.last=null}
 }
 
 /* ---------- events ---------- */
