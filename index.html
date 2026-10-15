@@ -106,6 +106,14 @@ button.cell:disabled{cursor:default}
 .btn:disabled{opacity:.35;cursor:not-allowed}
 .tlink{border:0;background:none;padding:0;color:var(--tint-text);font-size:15px;text-transform:none}
 .tlink:active{opacity:.5}
+.undo{border:0;background:var(--tint-soft);color:var(--tint-text);border-radius:999px;height:28px;padding:0 11px 0 9px;margin-left:10px;font-size:15px;font-weight:600;display:inline-flex;align-items:center;gap:4px;vertical-align:middle;text-transform:none}
+.undo svg{width:15px;height:15px}
+.undo:active{opacity:.5}
+.ghead .r{display:inline-flex;align-items:center}
+.switch{flex:none;width:51px;height:31px;border-radius:999px;border:0;background:var(--fill-2);position:relative;padding:0;transition:background-color .25s var(--ease)}
+.switch i{position:absolute;top:2px;left:2px;width:27px;height:27px;border-radius:50%;background:#fff;box-shadow:0 3px 8px rgba(0,0,0,.15),0 3px 1px rgba(0,0,0,.06);transition:transform .3s var(--ease)}
+.switch.on{background:var(--green)}
+.switch.on i{transform:translateX(20px)}
 .more{border:0;background:var(--fill);color:var(--label-2);border-radius:999px;min-width:34px;height:24px;margin-left:10px;font-size:11px;letter-spacing:1px;padding:0 8px;vertical-align:1px}
 .more:active{opacity:.5}
 
@@ -224,7 +232,8 @@ function derive(st){
     [[m.a,m.b],[m.b,m.a]].forEach(function(pr){var x=P[pr[0]];x.played++;x.lastOpp=pr[1];x.lastEnd=m.endedSeq;x.vs[pr[1]]=(x.vs[pr[1]]||0)+1});
   });
   (st.adj||[]).forEach(function(a){if(P[a.player])P[a.player].adjust+=a.delta});
-  list.forEach(function(p){p.cur=Math.max(0,p.chips-p.losses+p.adjust);p.alive=p.cur>0&&!p.withdrawn});
+  list.forEach(function(p){p.cur=Math.max(0,p.chips-p.losses+p.adjust);p.alive=p.cur>0&&!p.withdrawn;p.held=0});
+  var hold=st.hold||{};Object.keys(hold).forEach(function(t){var q=P[hold[t]];if(q&&!q.busy)q.held=+t});
   var alive=list.filter(function(p){return p.alive});
   var active=alive.filter(function(p){return !p.away});
   var minPlayed=active.length?Math.min.apply(null,active.map(function(p){return p.played})):0;
@@ -232,8 +241,20 @@ function derive(st){
 }
 
 /* ---------- the draw ---------- */
+function stays(st){return st.stay!==false}
+function pickChallenger(d,H,force){
+  var idle=d.active.filter(function(p){return !p.busy&&p.id!==H.id});
+  var free=idle.filter(function(p){return !p.held});
+  var pool=free.length?free:idle;
+  if(!pool.length)return null;
+  var opts=pool.filter(function(p){return p.id!==H.lastOpp});
+  if(!opts.length){if(force||d.active.length<=2)opts=pool;else return null}
+  var k={};opts.forEach(function(p){k[p.id]=rnd()});
+  opts.sort(function(x,y){return x.played-y.played||(H.vs[x.id]||0)-(H.vs[y.id]||0)||x.lastEnd-y.lastEnd||k[x.id]-k[y.id]});
+  return opts[0];
+}
 function pickPair(d,force){
-  var idle=d.active.filter(function(p){return !p.busy});
+  var idle=d.active.filter(function(p){return !p.busy&&!p.held});
   if(idle.length<2)return {reason:'few'};
   var pool=idle;
   if(!force&&d.S.leadLimit<99){
@@ -254,9 +275,24 @@ function pickPair(d,force){
   return {reason:'rematch',names:[order[0].name,order[1].name]};
 }
 function fill(st,forceTable){
-  st.blocked=[];
+  st.blocked=[];st.hold=st.hold||{};
+  if(!stays(st))st.hold={};
+  Object.keys(st.hold).forEach(function(t){if(+t>st.tables)delete st.hold[t]});
+  for(var t0=1;t0<=st.tables;t0++){
+    var hid=st.hold[t0];if(!hid)continue;
+    if(st.matches.some(function(m){return m.status==='live'&&m.table===t0})){delete st.hold[t0];continue}
+    var d0=derive(st),H=d0.P[hid];
+    if(!H||!H.alive||H.away||H.busy){delete st.hold[t0];continue}
+    var c=pickChallenger(d0,H,forceTable===t0);
+    if(!c){st.blocked.push({table:t0,reason:'challenger',names:[H.name]});continue}
+    if(c.held)delete st.hold[c.held];
+    delete st.hold[t0];
+    st.seq++;
+    st.matches.push({id:'m'+st.seq,n:st.seq,a:hid,b:c.id,table:t0,status:'live',winner:null,startedAt:Date.now(),endedSeq:null,endedAt:null});
+  }
   for(var t=1;t<=st.tables;t++){
     if(st.matches.some(function(m){return m.status==='live'&&m.table===t}))continue;
+    if(st.hold[t])continue;
     var r=pickPair(derive(st),forceTable===t);
     if(!r.pair){st.blocked.push({table:t,reason:r.reason,names:r.names||null});continue}
     st.seq++;
@@ -314,14 +350,26 @@ function act(name,el){
   var ds=el.dataset, st;
   switch(name){
     case 'tab':ui.tab=ds.v;render();break;
-    case 'pick':if(!canAct())return;if(!(ui.pending&&ui.pending.m===ds.m&&ui.pending.w===ds.w))ui.pending={m:ds.m,w:ds.w,at:Date.now()};render();break;
+    case 'pick':if(!canAct())return;act('win',el);break;
+    case 'undo':
+      st=clone(S);m=st.matches.find(function(x){return x.id===ds.m});
+      if(!m||m.status!=='done'||!undoable(st,m.table)||undoable(st,m.table).id!==m.id)return;
+      var ids=[m.a,m.b];
+      st.matches=st.matches.filter(function(x){return !(x.status==='live'&&x.n>m.n&&(ids.indexOf(x.a)>=0||ids.indexOf(x.b)>=0))});
+      st.hold=st.hold||{};Object.keys(st.hold).forEach(function(t){if(ids.indexOf(st.hold[t])>=0)delete st.hold[t]});
+      m.status='live';m.winner=null;m.endedSeq=null;m.endedAt=null;delete m.note;
+      ui.last=null;
+      commit(normalize(st));break;
+    case 'stay':st=clone(S);st.stay=!stays(st);if(!st.stay)st.hold={};commit(normalize(st));break;
+    case 'dStay':draft.stay=draft.stay===false;saveDraft();render();break;
     case 'unpick':ui.pending=null;ui.confirm=null;render();break;
     case 'win':
       st=clone(S);var m=st.matches.find(function(x){return x.id===ds.m});
       if(!m||m.status!=='live'){flash='That match was already scored.';render();return}
       m.status='done';m.winner=ds.w;st.endSeq=(st.endSeq||0)+1;m.endedSeq=st.endSeq;m.endedAt=Date.now();
       var dd=derive(st),Wp=dd.P[ds.w],Lp=dd.P[ds.w===m.a?m.b:m.a];
-      ui.last={w:Wp.name,l:Lp.name,table:m.table,left:Lp.cur,at:Date.now()};
+      if(stays(st)){st.hold=st.hold||{};st.hold[m.table]=ds.w}
+      ui.last={w:Wp.name,wid:ds.w,l:Lp.name,table:m.table,left:Lp.cur,at:Date.now()};
       commit(normalize(st));break;
     case 'sheet':ui.sheet={t:ds.v,id:ds.id||null};render();break;
     case 'closeSheet':ui.sheet=null;render();break;
@@ -369,7 +417,7 @@ function act(name,el){
     case 'viewOff':history.replaceState(null,'',location.pathname+location.search);render();break;
     case 'claim':mode='shared';flash=null;render();break;
     case 'reset':
-      st=blankState();st.title=S.title;st.tables=S.tables;st.leadLimit=S.leadLimit;
+      st=blankState();st.title=S.title;st.tables=S.tables;st.leadLimit=S.leadLimit;st.stay=stays(S);
       draft={title:S.title,tables:S.tables,leadLimit:S.leadLimit,example:false,players:S.players.map(function(p){return {id:uid(),name:p.name,chips:p.chips}})};saveDraft();
       commit(st);break;
     case 'histAll':ui.histAll=!ui.histAll;render();break;
@@ -396,7 +444,7 @@ function act(name,el){
       var err=setupError();if(err){flash=err;render();return}
       st=blankState();st.title=(draft.title||'Pool Chip Tournament').trim();st.tables=draft.tables;st.leadLimit=draft.leadLimit;
       st.players=draft.players.map(function(x){return {id:x.id,name:x.name.trim(),chips:x.chips}});
-      st.phase='running';st.startedAt=Date.now();
+      st.phase='running';st.startedAt=Date.now();st.stay=draft.stay!==false;
       commit(normalize(st));break;
   }
 }
@@ -424,6 +472,7 @@ var IC={
   chev:'<svg class="chev" viewBox="0 0 9 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 1.5L7 7l-5.5 5.5"/></svg>',
   minus:'<svg viewBox="0 0 12 12" aria-hidden="true"><rect x="1" y="5" width="10" height="2" rx="1" fill="currentColor"/></svg>',
   plus:'<svg viewBox="0 0 12 12" aria-hidden="true"><rect x="1" y="5" width="10" height="2" rx="1" fill="currentColor"/><rect x="5" y="1" width="2" height="10" rx="1" fill="currentColor"/></svg>',
+  undo:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>',
   trophy:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4zM7 6H4a3 3 0 0 0 3 4M17 6h3a3 3 0 0 1-3 4"/></svg>'
 };
 function modeText(){
@@ -451,7 +500,8 @@ function settingsSheet(){
   out+=group('Appearance','<div class="list"><div class="cell">'+seg('theme',[['auto','Automatic'],['light','Light'],['dark','Dark']],theme,'grow')+'</div></div>');
   if(can&&run){
     out+=group('Tournament','<div class="list"><div class="cell"><span class="grow">Tables</span><span class="val">'+S.tables+'</span>'+stepper('tables',S.tables,1,12,'tables')+'</div>'+
-      '<div class="cell" style="flex-wrap:wrap"><span class="grow">Draw pace</span>'+seg('leadSet',[[1,'Strict'],[2,'Balanced'],[99,'Fastest']],S.leadLimit)+'</div></div>',paceText(S.leadLimit));
+      '<div class="cell"><span class="grow">Winner stays on table</span>'+sw('stay',stays(S),'Winner stays on table')+'</div>'+
+      '<div class="cell" style="flex-wrap:wrap"><span class="grow">Draw pace</span>'+seg('leadSet',[[1,'Strict'],[2,'Balanced'],[99,'Fastest']],S.leadLimit)+'</div></div>',(stays(S)?'The winner keeps the table and plays the next challenger. ':'')+paceText(S.leadLimit));
   }
   if(can&&S.phase!=='setup')out+=group('','<div class="list"><button class="cell" data-act="viewOn"><span class="grow">Preview player view</span>'+IC.chev+'</button></div>',h(modeText()));
   else out+=group('','',h(modeText()));
@@ -492,7 +542,7 @@ function renderSetup(){
   }
   var err=setupError(),total=draft.players.reduce(function(a,p){return a+p.chips},0),out='';
   out+=group('Name','<div class="list"><label class="cell"><input class="tin" id="d-title" value="'+h(draft.title)+'" maxlength="60" placeholder="Tournament name" aria-label="Tournament name"></label></div>');
-  out+=group('Tables','<div class="list"><div class="cell"><span class="grow">Tables</span><span class="val">'+draft.tables+'</span>'+stepper('dTables',draft.tables,1,12,'tables')+'</div><div class="cell" style="flex-wrap:wrap"><span class="grow">Draw pace</span>'+seg('dPace',[[1,'Strict'],[2,'Balanced'],[99,'Fastest']],draft.leadLimit)+'</div></div>',paceText(draft.leadLimit));
+  out+=group('Tables','<div class="list"><div class="cell"><span class="grow">Tables</span><span class="val">'+draft.tables+'</span>'+stepper('dTables',draft.tables,1,12,'tables')+'</div><div class="cell"><span class="grow">Winner stays on table</span>'+sw('dStay',draft.stay!==false,'Winner stays on table')+'</div><div class="cell" style="flex-wrap:wrap"><span class="grow">Draw pace</span>'+seg('dPace',[[1,'Strict'],[2,'Balanced'],[99,'Fastest']],draft.leadLimit)+'</div></div>',(draft.stay!==false?'The winner keeps the table and plays the next challenger. ':'')+paceText(draft.leadLimit));
   var rows=draft.players.map(function(p,i){return '<div class="cell ind"><button class="minus" data-act="dRemove" data-p="'+p.id+'" aria-label="Remove '+h(p.name)+'">'+IC.minus+'</button><input class="tin" data-name="'+p.id+'" id="n-'+p.id+'" value="'+h(p.name)+'" aria-label="Player '+(i+1)+' name" maxlength="40"><span class="val">'+p.chips+'</span>'+stepper('dChips',p.chips,1,9,'chips for '+h(p.name),' data-p="'+p.id+'"')+'</div>'}).join('');
   rows+='<div class="cell ind"><button class="plus" data-act="dAdd" aria-label="Add player">'+IC.plus+'</button><input class="tin" id="new-name" placeholder="Add player" maxlength="40"><input class="num" id="new-chips" type="number" min="1" max="9" value="3" aria-label="Starting chips"></div>';
   out+=group('Players · '+draft.players.length,'<div class="list">'+rows+'</div>',(draft.example?'These are example players. Replace them with your own. ':'')+'Fewer chips for stronger players. '+total+' chips in total. <button class="tlink" data-act="dPasteToggle">'+(ui.paste?'Hide paste box':'Paste a list')+'</button>'+(draft.players.length?' · <button class="tlink" data-act="dClear">Clear all</button>':''),'');
@@ -502,27 +552,42 @@ function renderSetup(){
 }
 
 /* ----- running ----- */
+function undoable(st,t){
+  var done=st.matches.filter(function(m){return m.status==='done'});
+  var last=null;done.forEach(function(m){if(m.table===t&&(!last||m.endedSeq>last.endedSeq))last=m});
+  if(!last)return null;
+  var later=done.some(function(m){return m.endedSeq>last.endedSeq&&[m.a,m.b].some(function(id){return id===last.a||id===last.b})});
+  return later?null:last;
+}
+function sw(act,on,label){return '<button class="switch'+(on?' on':'')+'" role="switch" aria-checked="'+on+'" aria-label="'+label+'" data-act="'+act+'"><i></i></button>'}
 function tableGroups(d){
   var live={};S.matches.forEach(function(m){if(m.status==='live')live[m.table]=m});
   var blocked={};(S.blocked||[]).forEach(function(b){blocked[b.table]=b});
-  var out='',can=canAct();
+  var hold=S.hold||{},out='',can=canAct();
+  var age=ui.last?Date.now()-ui.last.at:1e9;
+  function flashOn(p,t){return ui.last&&age<3000&&ui.last.wid===p.id&&ui.last.table===t}
+  function cellFor(p,m,t,tappable){
+    var hi=flashOn(p,t),delay=hi?' style="animation-delay:-'+age+'ms"':'',isW=hold[t]===p.id||(m&&m.a===p.id&&p.lastOpp&&p.lastEnd>=0&&hi);
+    var crown=hi?'<span class="check">'+IC.check+'</span>':'';
+    var tag='<span class="name">'+crown+h(p.name)+(hi?'<span class="wlabel">Winner</span>':'')+'</span>'+chipsHTML(p.cur,p.chips);
+    return tappable?'<button class="cell pcell'+(hi?' sel':'')+'"'+delay+' data-act="pick" data-m="'+m.id+'" data-w="'+p.id+'" '+(can?'':'disabled')+'>'+tag+'</button>':'<div class="cell pcell'+(hi?' sel':'')+'"'+delay+'>'+tag+'</div>';
+  }
   for(var t=1;t<=S.tables;t++){
-    var m=live[t];
+    var m=live[t],u=can?undoable(S,t):null;
+    var undo=u?'<button class="undo" data-act="undo" data-m="'+u.id+'" aria-label="Undo last result on table '+t+'">'+IC.undo+'Undo</button>':'';
     if(m){
-      var A=d.P[m.a],B=d.P[m.b],pend=ui.pending&&ui.pending.m===m.id?ui.pending.w:null;
-      var cellFor=function(p){var sel=pend===p.id,lose=pend&&!sel,delay=sel&&ui.pending.at?' style="animation-delay:-'+Math.min(3000,Date.now()-ui.pending.at)+'ms"':'';
-        return '<button class="cell pcell'+(sel?' sel':'')+(lose?' lose':'')+'"'+delay+' data-act="pick" data-m="'+m.id+'" data-w="'+p.id+'" '+(can?'':'disabled')+' aria-pressed="'+sel+'"><span class="name">'+(sel?'<span class="check">'+IC.check+'</span>':'')+h(p.name)+(sel?'<span class="wlabel">Winner</span>':'')+'</span>'+chipsHTML(p.cur,p.chips)+'</button>'};
-      var top=A,bot=B;if(pend===m.b){top=B;bot=A}
-      var right='<span class="elapsed" data-t="'+m.startedAt+'">'+mins(m.startedAt)+'</span>'+(can&&!pend?'<button class="more" data-act="sheet" data-v="cancel" data-id="'+m.id+'" aria-label="More options for table '+t+'">•••</button>':'');
-      var body='<div class="list">'+cellFor(top)+cellFor(bot)+'</div>';
-      if(pend)body+='<div class="actions"><button class="btn primary" data-act="win" data-m="'+m.id+'" data-w="'+pend+'">Confirm</button><button class="btn" data-act="unpick">Undo</button></div>';
-      out+=group('Table '+t,body,pend?h(d.P[pend===m.a?m.b:m.a].name)+' will lose a chip.':'',right);
+      var right='<span class="elapsed" data-t="'+m.startedAt+'">'+mins(m.startedAt)+'</span>'+undo+(can?'<button class="more" data-act="sheet" data-v="cancel" data-id="'+m.id+'" aria-label="More options for table '+t+'">•••</button>':'');
+      out+=group('Table '+t,'<div class="list">'+cellFor(d.P[m.a],m,t,true)+cellFor(d.P[m.b],m,t,true)+'</div>',can&&t===1&&!ui.last?'Tap the player who won.':'',right);
+    }else if(hold[t]&&d.P[hold[t]]){
+      var H=d.P[hold[t]],b0=blocked[t];
+      var canForce0=can&&d.active.some(function(p){return !p.busy&&p.id!==H.id});
+      out+=group('Table '+t,'<div class="list">'+cellFor(H,null,t,false)+'<div class="cell"><span class="grow" style="color:var(--label-2)">Waiting for a challenger</span>'+(canForce0?'<button class="btn small" data-act="force" data-t="'+t+'">Draw Now</button>':'')+'</div></div>','',undo);
     }else{
       var b=blocked[t],msg='Waiting for a free player';
       if(b&&b.reason==='lead')msg='Held so everyone plays a fair number of matches';
       if(b&&b.reason==='rematch')msg=h(b.names[0])+' and '+h(b.names[1])+' just played';
-      var canForce=can&&d.active.filter(function(p){return !p.busy}).length>=2;
-      out+=group('Table '+t,'<div class="list"><div class="cell"><span class="grow" style="color:var(--label-2)">'+msg+'</span>'+(canForce?'<button class="btn small" data-act="force" data-t="'+t+'">Start Match</button>':'')+'</div></div>','','Open');
+      var canForce=can&&d.active.filter(function(p){return !p.busy&&!p.held}).length>=2;
+      out+=group('Table '+t,'<div class="list"><div class="cell"><span class="grow" style="color:var(--label-2)">'+msg+'</span>'+(canForce?'<button class="btn small" data-act="force" data-t="'+t+'">Start Match</button>':'')+'</div></div>','',undo||'Open');
     }
   }
   return out;
@@ -532,7 +597,7 @@ function standingsHTML(d,done){
   var gone=d.list.filter(function(p){return !p.alive}).sort(function(x,y){return y.lastEnd-x.lastEnd});
   var canE=canAct()&&!done;
   function row(p,i){
-    var status=done&&p.alive?'Winner':p.withdrawn?'Withdrew':!p.alive?'':p.busy?'Table '+p.table:p.away?'Away':'';
+    var status=done&&p.alive?'Winner':p.withdrawn?'Withdrew':!p.alive?'':p.busy?'Table '+p.table:p.held?'Table '+p.held:p.away?'Away':'';
     var inner=(p.alive?'<span class="rank">'+(i+1)+'</span>':'')+'<span class="grow">'+h(p.name)+'</span>'+(status?'<span class="sec">'+status+'</span>':'')+(p.alive?chipsHTML(p.cur,p.chips):'');
     return canE?'<button class="cell'+(p.alive?'':' dim')+'" data-act="sheet" data-v="player" data-id="'+p.id+'">'+inner+'</button>':'<div class="cell'+(p.alive?'':' dim')+'">'+inner+'</div>';
   }
@@ -561,12 +626,12 @@ function renderRunning(){
   var liveN=S.matches.filter(function(m){return m.status==='live'}).length;
   var sub=done?'Finished':d.alive.length+' of '+d.list.length+' players left · '+liveN+' playing';
   var hero='';
-  if(done){var w=d.alive[0];hero='<div class="hero"><div class="medal">'+IC.trophy+'</div><h2>'+h(w?w.name+' Wins':'No Winner')+'</h2><p>'+(w?w.wins+' wins from '+w.played+' matches · '+w.cur+' chip'+(w.cur===1?'':'s')+' left':'')+'</p></div>'}
+  if(done){var w=d.alive[0];hero='<div class="hero"><div class="medal">'+IC.trophy+'</div><h2>'+h(w?w.name+' Wins':'No Winner')+'</h2><p>'+(w?w.wins+' wins from '+w.played+' matches · '+w.cur+' chip'+(w.cur===1?'':'s')+' left':'')+'</p>'+(function(){if(!canAct())return '';var lm=null;S.matches.forEach(function(x){if(x.status==='done'&&(!lm||x.endedSeq>lm.endedSeq))lm=x});return lm?'<button class="btn small" style="margin-top:12px" data-act="undo" data-m="'+lm.id+'">'+IC.undo.replace('<svg','<svg style="width:15px;height:15px;vertical-align:-2px;margin-right:6px"')+'Undo Last Result</button>':''})()+'</div>'}
   var tabsDef=done?[['standings','Standings'],['history','History']]:[['tables','Tables'],['standings','Standings'],['history','History']];
   var tab=ui.tab;if(done&&tab==='tables')tab='standings';
   var body='';
   if(tab==='tables'){
-    var waiting=d.active.filter(function(p){return !p.busy}).map(function(p){return h(p.name)});
+    var waiting=d.active.filter(function(p){return !p.busy&&!p.held}).map(function(p){return h(p.name)});
     var away=d.alive.filter(function(p){return p.away}).map(function(p){return h(p.name)});
     body=tableGroups(d)+
       (waiting.length?group('Up next','<div class="list"><div class="cell"><span class="grow">'+waiting.join(', ')+'</span></div></div>'):'')+
@@ -574,7 +639,7 @@ function renderRunning(){
   }else if(tab==='standings')body=standingsHTML(d,done);
   else body=historyHTML(d);
   var toast='',age=ui.last?Date.now()-ui.last.at:1e9;
-  if(age<3000){var L=ui.last;toast='<div class="toast" role="status" style="animation-delay:-'+age+'ms"><span class="check">'+IC.check+'</span><div><b>'+h(L.w)+' won</b><br><span>'+h(L.l)+(L.left>0?' has '+L.left+' chip'+(L.left===1?'':'s')+' left':' is out')+'</span></div></div>'}
+  if(age<3000){var L=ui.last;toast='<div class="toast" role="status" style="animation-delay:-'+age+'ms"><span class="check">'+IC.check+'</span><div><b>'+h(L.w)+' won'+(stays(S)?' and stays on table '+L.table:'')+'</b><br><span>'+h(L.l)+(L.left>0?' has '+L.left+' chip'+(L.left===1?'':'s')+' left':' is out')+'</span></div></div>'}
   return header(sub)+hero+'<div class="tabs">'+seg('tab',tabsDef,tab,'big')+'</div>'+body+toast;
 }
 
@@ -584,7 +649,7 @@ function render(){
   var d=S.phase==='setup'?null:derive(S);
   root.innerHTML='<div class="wrap">'+html+'</div>'+(ui.sheet?sheetHTML(d||derive(S)):'')+(saving?'<div class="veil" aria-hidden="true"></div>':'');
   if(ui.last&&!lastTimer){var left=3000-(Date.now()-ui.last.at);
-    if(left>0)lastTimer=setTimeout(function(){lastTimer=null;var r=root.querySelector('.toast');if(r)r.remove();ui.last=null},left+50);else ui.last=null}
+    if(left>0)lastTimer=setTimeout(function(){lastTimer=null;ui.last=null;if(!saving&&!ui.sheet)render();else{var r=root.querySelector('.toast');if(r)r.remove()}},left+50);else ui.last=null}
 }
 
 /* ---------- events ---------- */
