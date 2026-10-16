@@ -94,6 +94,9 @@ textarea{min-height:160px;resize:vertical;padding:1rem;line-height:1.5}
 :root[data-theme="light"] .add{background:#dcfce7;color:#166534}
 .plist .addrow select{width:auto;margin:0;border:1px solid var(--field);border-radius:6px;background:var(--panel);color:var(--text);padding:.35rem .4rem;font-size:.85rem}
 .nochips .chip-adjuster{display:none}
+.player-row small em.race{font-style:normal;font-weight:800;color:#fdba74;white-space:nowrap}
+:root[data-theme="light"] .player-row small em.race{color:#c2410c}
+@media (min-width:901px){.player-row small{min-width:34px}}
 .adjmark{color:#ff4d5e;font-weight:900;margin-left:.2rem;font-size:1.1em;line-height:1;text-shadow:none}
 .wide-sheet{width:min(720px,calc(100% - 24px))}
 .rsheet .panel-note{margin-top:.75rem}
@@ -428,7 +431,7 @@ function recordTournament(st){
     if(!DB.players[k])DB.players[k]={name:x.name.trim(),tier:x.tier||tierFromChips(x.chips),added:Date.now()};
   });
   DB.tournaments[st.tid]={date:st.startedAt||Date.now(),title:st.title,updatedAt:Date.now(),
-    matches:(st.type==='de'?deCompute(st).list.filter(function(m){return m.state==='done'}).map(function(m){return {winner:m.w,a:m.p1,b:m.p2,rw:st.race||1,rl:m.rl||0}}):st.matches.filter(function(m){return m.status==='done'})).map(function(m){var l=m.winner===m.a?m.b:m.a;return {w:P[m.winner],l:P[l],rw:m.rw||1,rl:m.rl||0}})};
+    matches:(st.type==='de'?deCompute(st).list.filter(function(m){return m.state==='done'}).map(function(m){return {winner:m.w,a:m.p1,b:m.p2,rw:m.rw||st.race||1,rl:m.rl||0}}):st.matches.filter(function(m){return m.status==='done'})).map(function(m){var l=m.winner===m.a?m.b:m.a;return {w:P[m.winner],l:P[l],rw:m.rw||1,rl:m.rl||0}})};
   saveDB(true);
 }
 function saveDB(push){lsSet(LS_DB,DB);RC=null;if(push&&canSync())schedulePush()}
@@ -596,7 +599,7 @@ function deCompute(st){
     if(o.p1===undefined||o.p2===undefined)return;
     if(o.p1===null||o.p2===null){o.done=true;o.bye=true;o.w=o.p1||o.p2||null;o.l=null;o.state='bye';return}
     var r=res[d.id];
-    if(r){o.done=true;o.state='done';o.w=r.w;o.l=r.w===o.p1?o.p2:o.p1;o.rl=r.rl||0;o.seq=r.seq;o.table=r.table;return}
+    if(r){o.done=true;o.state='done';o.w=r.w;o.l=r.w===o.p1?o.p2:o.p1;o.rl=r.rl||0;o.rw=r.rw||st.race||1;o.seq=r.seq;o.table=r.table;return}
     o.state='ready';
   });
   var g1=by['G1-0'],g2=by['G2-0'],champ=null;
@@ -629,6 +632,18 @@ function deRecord(st){
   D.list.forEach(function(m){if(m.state!=='done')return;L[m.w].w++;L[m.l].l++;L[m.l].last=m.seq});
   return L;
 }
+/* Handicap races (double elimination). Ratings are frozen when the bracket starts (st.rt).
+   The lower-rated player races to the base race; the higher-rated player's race is the length
+   that makes the match closest to an even 50/50, using the rating odds per rack
+   (100 points = 2-to-1). Capped at 3x the base so matches stay a sensible length. */
+function hcWinProb(p,a,b){var q=1-p,s=0,c=1;for(var k=0;k<b;k++){if(k>0)c=c*(a-1+k)/k;s+=c*Math.pow(q,k)}return Math.pow(p,a)*s}
+function hcLong(diff,base){var p=1/(1+Math.pow(2,-Math.abs(diff)/100)),best=base,bd=9,cap=Math.max(base*3,4);
+  for(var a=base;a<=cap;a++){var P=hcWinProb(p,a,base),d=Math.abs(P-.5);if(d<bd){bd=d;best=a}if(P<.5)break}return best}
+function deRaces(st,a,b){var base=st.race||1,o={};o[a]=base;o[b]=base;
+  if(!st.hc||!st.rt||a==null||b==null)return o;
+  var ra=st.rt[a]||500,rb=st.rt[b]||500;if(ra===rb)return o;
+  if(ra>rb)o[a]=hcLong(ra-rb,base);else o[b]=hcLong(rb-ra,base);return o}
+function deSnapRatings(st){st.rt={};st.players.forEach(function(x){var kn=known(x.name);st.rt[x.id]=kn?kn.rating:(TIERS[x.tier]||TIERS.a).start})}
 function norm(st,f){return st.type==='de'?deNormalize(st):normalize(st,f)}
 
 /* ---------- saving ---------- */
@@ -681,6 +696,8 @@ function act(name,el){
       ui.last=null;
       commit(normalize(st));break;
     case 'stay':st=clone(S);st.stay=!stays(st);if(!st.stay)st.hold={};commit(normalize(st));break;
+    case 'dHc':draft.hc=draft.hc===false;saveDraft();render();break;
+    case 'hcToggle':st=clone(S);st.hc=!st.hc;if(st.hc&&!st.rt)deSnapRatings(st);commit(norm(st));break;
     case 'dStay':draft.stay=draft.stay===false;saveDraft();render();break;
     case 'unpick':ui.pending=null;ui.confirm=null;render();break;
     case 'win':
@@ -696,14 +713,16 @@ function act(name,el){
     case 'race':st=clone(S);st.race=Math.max(1,Math.min(9,(st.race||1)+(+ds.d)));commit(norm(st));break;
     case 'dType':draft.type=ds.v;if(ds.v==='de'&&(draft.race||1)<2)draft.race=3;saveDraft();render();break;
     case 'deWin':
-      if((S.race||1)>1&&ds.rl==null){ui.sheet={t:'derace',id:ds.m,w:ds.w};render();return}
+      var dm0=deCompute(S).by[ds.m],RC0=dm0?deRaces(S,dm0.p1,dm0.p2):{},lid0=dm0?(dm0.p1===ds.w?dm0.p2:dm0.p1):null;
+      if(dm0&&RC0[lid0]>1&&ds.rl==null){ui.sheet={t:'derace',id:ds.m,w:ds.w};render();return}
       st=clone(S);var D0=deCompute(st),dm=D0.by[ds.m];
       if(!dm||dm.state!=='ready'){flash='That match was already scored.';render();return}
       st.de.seq++;var asg=st.de.tables[ds.m];
-      st.de.results[ds.m]={w:ds.w,rl:Math.max(0,Math.min((st.race||1)-1,+ds.rl||0)),seq:st.de.seq,table:asg?asg.t:0,at:Date.now()};
+      var RCw=deRaces(st,dm.p1,dm.p2),wr=RCw[ds.w],lr=RCw[dm.p1===ds.w?dm.p2:dm.p1];
+      st.de.results[ds.m]={w:ds.w,rw:wr,rl:Math.max(0,Math.min(lr-1,+ds.rl||0)),seq:st.de.seq,table:asg?asg.t:0,at:Date.now()};
       var lid=dm.p1===ds.w?dm.p2:dm.p1,NM=deNameMap(),Lc=deRecord(st)[lid].l;
       var msg=dm.id==='G1-0'&&ds.w===dm.p2?'One deciding match: the winner takes the tournament':NM[lid]+(Lc>=2?' is out':dm.b==='W'?' drops to the losers bracket':' has 1 loss');
-      ui.last={w:NM[ds.w],wid:ds.w,l:NM[lid],table:asg?asg.t:0,msg:msg,score:(st.race||1)>1?(st.race||1)+'–'+(+ds.rl||0):'',at:Date.now()};
+      ui.last={w:NM[ds.w],wid:ds.w,l:NM[lid],table:asg?asg.t:0,msg:msg,score:wr>1||lr>1?wr+'–'+(+ds.rl||0):'',at:Date.now()};
       commit(deNormalize(st));break;
     case 'btab':ui.btab=ds.v;render();break;
     case 'deUndo':st=clone(S);if(!deUndoable(st,ds.m))return;delete st.de.results[ds.m];ui.last=null;commit(deNormalize(st));break;
@@ -766,7 +785,7 @@ function act(name,el){
     case 'claim':mode='shared';flash=null;render();break;
     case 'reset':
       st=blankState();st.title=S.title;st.tables=S.tables;st.leadLimit=S.leadLimit;st.stay=stays(S);st.race=S.race||1;
-      draft={title:S.title,tables:S.tables,leadLimit:S.leadLimit,race:S.race||1,type:S.type||'chip',stay:stays(S),example:false,players:S.players.map(function(p){return {id:uid(),name:p.name,tier:p.tier,chips:p.chips,manual:!!p.manual}})};saveDraft();
+      draft={title:S.title,tables:S.tables,leadLimit:S.leadLimit,race:S.race||1,type:S.type||'chip',hc:S.hc!==false,stay:stays(S),example:false,players:S.players.map(function(p){return {id:uid(),name:p.name,tier:p.tier,chips:p.chips,manual:!!p.manual}})};saveDraft();
       commit(st);break;
     case 'histAll':ui.histAll=!ui.histAll;render();break;
     /* setup */
@@ -797,7 +816,7 @@ function act(name,el){
       st.race=draft.race||1;
       st.phase='running';st.startedAt=Date.now();st.stay=draft.stay!==false;
       st.seed={};st.players.forEach(function(x){st.seed[x.id]=rnd()});
-      if(draft.type==='de'){st.type='de';st.race=draft.race||3;ui.tab='bracket';ui.btab=null;commit(deStart(st,st.players.map(function(x){return x.id})));break}
+      if(draft.type==='de'){st.type='de';st.race=draft.race||3;st.hc=draft.hc!==false;deSnapRatings(st);ui.tab='bracket';ui.btab=null;commit(deStart(st,st.players.map(function(x){return x.id})));break}
       commit(normalize(st));break;
   }
 }
@@ -859,7 +878,7 @@ function settingsSheet(){
     out+='<div class="sheet-sec"><h3>Tournament</h3>'+
       '<div class="sheet-row"><span>Tables</span>'+stepper('tables',S.tables,1,12,'tables')+'</div>'+
       '<div class="sheet-row"><span>Race to</span>'+stepper('race',S.race||1,1,9,'race length')+'</div>'+
-      (S.type==='de'?'<p>Changing the race applies to matches not yet scored.</p>':
+      (S.type==='de'?toggle('hcToggle',!!(S.hc&&S.rt),'Handicap by rating')+'<p>'+(S.hc&&S.rt?'The race above is for the lower-rated player. ':'')+'Changes apply to matches not yet scored.</p>':
         toggle('stay',stays(S),'Winner stays on table')+
         '<div class="sheet-row" style="display:block"><span style="display:block;margin-bottom:.5rem">Draw pace</span>'+seg('leadSet',[[1,'Strict'],[2,'Balanced'],[99,'Fastest']],S.leadLimit)+'</div><p>'+(stays(S)?'The winner keeps the table and plays the next challenger. ':'')+paceText(S.leadLimit)+'</p>')+'</div>';
   }
@@ -885,9 +904,9 @@ function sheetHTML(d){
   if(s.t==='reset')return actionSheet(S.phase==='done'?'Start a new tournament?':'Reset this tournament?','Every result is cleared. Your player list is kept so you can edit it. Ratings keep everything already played.',[{label:S.phase==='done'?'New Tournament':'Reset Tournament',cls:'danger',attrs:'data-act="reset"'}]);
   if(s.t==='cancel'){var m=S.matches.find(function(x){return x.id===s.id});if(!m)return '';
     return actionSheet('Cancel this match?',h(d.P[m.a].name)+' vs '+h(d.P[m.b].name)+' on table '+m.table+'. No chips change.',[{label:'Cancel Match',cls:'danger',attrs:'data-act="cancelMatch" data-m="'+m.id+'"'}])}
-  if(s.t==='derace'){var dd2=deCompute(S).by[s.id];if(!dd2)return '';var NN=deNameMap(),rc=S.race||1,ro=[],lo=dd2.p1===s.w?dd2.p2:dd2.p1;
-    for(var lj=0;lj<rc;lj++)ro.push({label:h(NN[s.w])+' '+rc+'–'+lj,cls:'primary',attrs:'data-act="deWin" data-m="'+s.id+'" data-w="'+s.w+'" data-rl="'+lj+'"'});
-    return actionSheet('Final score','Race to '+rc+'. '+h(NN[s.w])+' beat '+h(NN[lo])+'. How many racks did '+h(NN[lo])+' win?',ro)}
+  if(s.t==='derace'){var dd2=deCompute(S).by[s.id];if(!dd2)return '';var NN=deNameMap(),ro=[],lo=dd2.p1===s.w?dd2.p2:dd2.p1,RR=deRaces(S,dd2.p1,dd2.p2),wr2=RR[s.w],lr2=RR[lo];
+    for(var lj=0;lj<lr2;lj++)ro.push({label:h(NN[s.w])+' '+wr2+'–'+lj,cls:'primary',attrs:'data-act="deWin" data-m="'+s.id+'" data-w="'+s.w+'" data-rl="'+lj+'"'});
+    return actionSheet('Final score',(wr2===lr2?'Race to '+wr2+'. ':h(NN[s.w])+' races to '+wr2+', '+h(NN[lo])+' to '+lr2+'. ')+h(NN[s.w])+' beat '+h(NN[lo])+'. How many racks did '+h(NN[lo])+' win?',ro)}
   if(s.t==='deres'){var dr=deCompute(S).by[s.id];if(!dr||dr.state!=='done')return '';var N2=deNameMap();
     return deUndoable(S,s.id)?actionSheet(h(N2[dr.w])+' beat '+h(N2[dr.l]),h(dr.label),[{label:'Remove Result',cls:'danger',attrs:'data-act="deUndo" data-m="'+s.id+'"'}])
       :actionSheet(h(N2[dr.w])+' beat '+h(N2[dr.l]),'This result can’t be removed because a later match already depends on it. Undo the later results first.',[])}
@@ -939,7 +958,7 @@ function renderSetup(){
     '<div class="setup-grid">'+
     '<label>Tables<input id="d-tables" type="number" min="1" max="12" value="'+draft.tables+'"></label>'+
     '<label>Race to<input id="d-race" type="number" min="1" max="9" value="'+(draft.race||1)+'"></label>'+
-    (isDE?'<p class="setup-note span2">Random draw. Lose twice and you’re out. Everyone plays the same race.</p>':
+    (isDE?'<label class="span2">Races<span style="display:block">'+toggle('dHc',draft.hc!==false,'Handicap by rating')+'</span></label><p class="setup-note span2">Random draw. Lose twice and you’re out. '+(draft.hc!==false?'The lower-rated player races to '+(draft.race||1)+'; the higher-rated player’s race is longer, set so each has about an even chance (up to '+Math.max((draft.race||1)*3,4)+').':'Everyone plays the same race.')+'</p>':
       '<label>Winner<span style="display:block">'+toggle('dStay',draft.stay!==false,'Stays on table')+'</span></label>'+
       '<label>Draw pace<select id="d-pace"><option value="1"'+(draft.leadLimit===1?' selected':'')+'>Strict</option><option value="2"'+(draft.leadLimit===2?' selected':'')+'>Balanced</option><option value="99"'+(draft.leadLimit===99?' selected':'')+'>Fastest</option></select></label>'+
       '<p class="setup-note span2">'+(draft.stay!==false?'The winner keeps the table and plays the next challenger. ':'')+paceText(draft.leadLimit)+'</p>')+'</div>'+
@@ -964,14 +983,15 @@ function deMatchHTML(m,N,R,can,race){
     if(p===undefined)return '<div class="player-row"><span>TBD</span><small></small></div>';
     if(p===null)return '<div class="player-row bye"><span>Bye</span><small></small></div>';
     var win=m.state==='done'&&m.w===p,lose=m.state==='done'&&m.l===p;
-    var sm=m.state==='done'&&race>1?(win?race:(m.rl||0)):R[p].l;
+    var RCm=m.p1&&m.p2?deRaces(S,m.p1,m.p2):null,hcOn=S.hc&&S.rt;
+    var sm=m.state==='done'?((m.rw||race)>1||hcOn?(win?m.rw:(m.rl||0)):''):(m.state==='ready'&&RCm&&(race>1||hcOn)?'<em class="race">to '+RCm[p]+'</em>':'');
     var inner='<span>'+h(N[p])+'</span><small>'+sm+'</small>';
     if(m.state==='ready'&&can)return '<button class="player-row" data-act="deWin" data-m="'+m.id+'" data-w="'+p+'" aria-label="'+h(N[p])+' won">'+inner+'</button>';
     return '<div class="player-row'+(win?' winner':'')+(lose?' loser':'')+'">'+inner+'</div>';
   }
   var code=m.b==='G'?(m.r===1?'Final':'Reset Final'):(m.b==='W'?'WB ':'LB ')+m.r+'.'+(m.i+1);
   var tap=m.state==='done'&&can?' data-act="sheet" data-v="deres" data-id="'+m.id+'" role="button" tabindex="0"':'';
-  return '<article class="match '+st+'" data-mid="'+m.id+'"'+tap+'><div class="table-field">Table<span class="tbox'+(asg?' on':'')+'">'+tnum+'</span></div><div class="match-card">'+row(m.p1)+row(m.p2)+'</div><div class="match-label">'+code+'</div></article>';
+  return '<article class="match '+st+'" data-mid="'+m.id+'"'+tap+'><div class="table-field">Table<span class="tbox'+(asg?' on':'')+'">'+tnum+'</span></div><div class="match-card">'+row(m.p1)+row(m.p2)+'</div><div class="match-label">'+code+(m.state==='ready'&&m.p1&&m.p2&&S.hc&&S.rt&&deRaces(S,m.p1,m.p2)[m.p1]!==deRaces(S,m.p1,m.p2)[m.p2]?' · handicap':'')+'</div></article>';
 }
 function deSectionHTML(title,cls,ms,N,R,can,race,view,mt){
   var hidden=ms.filter(function(m){return m.state==='bye'}).length;
@@ -993,7 +1013,7 @@ function renderDE(){
   var still=S.players.filter(function(p){return done?p.id===D.champ:R[p.id].l<2});
   var ready=D.list.filter(function(m){return m.state==='ready'}).length,byes=D.list.filter(function(m){return m.state==='bye'&&m.b==='W'&&m.r===1&&m.w}).length;
   var title=done&&D.champ?N[D.champ]+' is champion':'Tournament Bracket';
-  var sub=S.players.length+' players, '+de.P+'-slot bracket, '+byes+' bye'+(byes===1?'':'s')+', '+(done?'finished':ready+' ready match'+(ready===1?'':'es')+' · race to '+race+' · '+still.length+' still in');
+  var sub=S.players.length+' players, '+de.P+'-slot bracket, '+byes+' bye'+(byes===1?'':'s')+', '+(done?'finished':ready+' ready match'+(ready===1?'':'es')+' · '+(S.hc&&S.rt?'handicap races, base '+race:'race to '+race)+' · '+still.length+' still in');
   var mt=['wb','lb','finals','players'].indexOf(ui.btab)>=0?ui.btab:deAutoTab(D);
   var hasL=D.list.some(function(m){return m.b==='L'});
   var liveIn={wb:0,lb:0,finals:0};Object.keys(de.tables).forEach(function(mid){var m=D.by[mid];if(m)liveIn[m.b==='W'?'wb':m.b==='L'?'lb':'finals']++});
