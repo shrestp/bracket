@@ -633,12 +633,11 @@ function deRecord(st){
   return L;
 }
 /* Handicap races (double elimination). Ratings are frozen when the bracket starts (st.rt).
-   The lower-rated player races to the base race; the higher-rated player's race is the length
-   that makes the match closest to an even 50/50, using the rating odds per rack
-   (100 points = 2-to-1). Capped at 3x the base so matches stay a sensible length. */
+   The lower-rated player races to the base race; the higher-rated player races one rack more
+   for every full 50 rating points between them (0-49: even, 50-99: +1, 100-149: +2 ...),
+   capped at 3x the base so matches stay a sensible length. */
 function hcWinProb(p,a,b){var q=1-p,s=0,c=1;for(var k=0;k<b;k++){if(k>0)c=c*(a-1+k)/k;s+=c*Math.pow(q,k)}return Math.pow(p,a)*s}
-function hcLong(diff,base){var p=1/(1+Math.pow(2,-Math.abs(diff)/100)),best=base,bd=9,cap=Math.max(base*3,4);
-  for(var a=base;a<=cap;a++){var P=hcWinProb(p,a,base),d=Math.abs(P-.5);if(d<bd){bd=d;best=a}if(P<.5)break}return best}
+function hcLong(diff,base){return Math.min(base+Math.floor(Math.abs(diff)/50),Math.max(base*3,4))}
 function deRaces(st,a,b){var base=st.race||1,o={};o[a]=base;o[b]=base;
   if(!st.hc||!st.rt||a==null||b==null)return o;
   var ra=st.rt[a]||500,rb=st.rt[b]||500;if(ra===rb)return o;
@@ -958,7 +957,7 @@ function renderSetup(){
     '<div class="setup-grid">'+
     '<label>Tables<input id="d-tables" type="number" min="1" max="12" value="'+draft.tables+'"></label>'+
     '<label>Race to<input id="d-race" type="number" min="1" max="9" value="'+(draft.race||1)+'"></label>'+
-    (isDE?'<label class="span2">Races<span style="display:block">'+toggle('dHc',draft.hc!==false,'Handicap by rating')+'</span></label><p class="setup-note span2">Random draw. Lose twice and you’re out. '+(draft.hc!==false?'The lower-rated player races to '+(draft.race||1)+'; the higher-rated player’s race is longer, set so each has about an even chance (up to '+Math.max((draft.race||1)*3,4)+').':'Everyone plays the same race.')+'</p>':
+    (isDE?'<label class="span2">Races<span style="display:block">'+toggle('dHc',draft.hc!==false,'Handicap by rating')+'</span></label><p class="setup-note span2">Random draw. Lose twice and you’re out. '+(draft.hc!==false?'The lower-rated player races to '+(draft.race||1)+'. The higher-rated player races one rack more for every 50 rating points between them: 0–49 apart '+(draft.race||1)+'–'+(draft.race||1)+', 50–99 apart '+((draft.race||1)+1)+'–'+(draft.race||1)+', 100–149 apart '+((draft.race||1)+2)+'–'+(draft.race||1)+', and so on, up to '+Math.max((draft.race||1)*3,4)+'.':'Everyone plays the same race.')+'</p>':
       '<label>Winner<span style="display:block">'+toggle('dStay',draft.stay!==false,'Stays on table')+'</span></label>'+
       '<label>Draw pace<select id="d-pace"><option value="1"'+(draft.leadLimit===1?' selected':'')+'>Strict</option><option value="2"'+(draft.leadLimit===2?' selected':'')+'>Balanced</option><option value="99"'+(draft.leadLimit===99?' selected':'')+'>Fastest</option></select></label>'+
       '<p class="setup-note span2">'+(draft.stay!==false?'The winner keeps the table and plays the next challenger. ':'')+paceText(draft.leadLimit)+'</p>')+'</div>'+
