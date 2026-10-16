@@ -440,7 +440,7 @@ function dbGames(db){
 }
 function ratings(){
   var key=JSON.stringify(DB);if(RC&&key===RCkey)return RC;
-  var keys=Object.keys(DB.players),R={},st={},by={},out={};
+  var keys=Object.keys(DB.players).filter(function(k){return !DB.players[k].hidden}),R={},st={},by={},out={};
   keys.forEach(function(k){var pp=DB.players[k];st[k]=pp.start!=null&&isFinite(pp.start)?+pp.start:(TIERS[pp.tier]||TIERS.a).start;R[k]=st[k];by[k]=[];out[k]={w:0,l:0}});
   dbGames(DB).forEach(function(x){if(!by[x[0]]||!by[x[1]])return;by[x[0]].push([x[1],1]);by[x[1]].push([x[0],0]);out[x[0]].w++;out[x[1]].l++});
   var c=Math.LN2/100,prior=1/(150*150);
@@ -459,6 +459,7 @@ function recordTournament(st){
   var P={};st.players.forEach(function(x){
     var k=x.key||nkey(x.name);P[x.id]=k;
     if(!DB.players[k])DB.players[k]={name:x.name.trim(),tier:x.tier||tierFromChips(x.chips),added:Date.now()};
+    else if(DB.players[k].hidden){delete DB.players[k].hidden;DB.players[k].tierAt=Date.now()}
   });
   DB.tournaments[st.tid]={date:st.startedAt||Date.now(),title:st.title,updatedAt:Date.now(),
     matches:(st.type==='de'?deCompute(st).list.filter(function(m){return m.state==='done'}).map(function(m){return {winner:m.w,a:m.p1,b:m.p2,rw:m.rw||st.race||1,rl:m.rl||0}}):st.matches.filter(function(m){return m.status==='done'})).map(function(m){var l=m.winner===m.a?m.b:m.a;return {w:P[m.winner],l:P[l],rw:m.rw||1,rl:m.rl||0}})};
@@ -780,9 +781,10 @@ function act(name,el){
     case 'setStart':var k1=ds.k,sv=parseInt((document.getElementById('start-in')||{}).value,10);
       if(!DB.players[k1]||!(sv>=100&&sv<=1000)){flash='Enter a Hub Rating between 100 and 1000.';render();return}
       DB.players[k1].start=sv;DB.players[k1].tier=sv>=575?'s':sv<425?'b':'a';DB.players[k1].tierAt=Date.now();saveDB(true);ui.sheet={t:'ratings'};ui.sheetAt=Date.now();flash=null;dbChanged();break;
+    case 'delRated':var kd=ds.k;if(DB.players[kd]){DB.players[kd].hidden=true;DB.players[kd].tierAt=Date.now();saveDB(true)}flash=null;ui.sheet={t:'ratings'};ui.sheetAt=Date.now();dbChanged();break;
     case 'addRated':var an=((document.getElementById('nr-name')||{}).value||'').trim(),av=parseInt((document.getElementById('nr-val')||{}).value,10),ak=nkey(an);
       if(!an){flash='Type a name first.';render();return}
-      if(DB.players[ak]){flash=an+' already has a Hub Rating. Tap their name to change it.';render();return}
+      if(DB.players[ak]&&!DB.players[ak].hidden){flash=an+' already has a Hub Rating. Tap their name to change it.';render();return}
       if(!(av>=100&&av<=1000))av=500;
       DB.players[ak]={name:an,tier:av>=575?'s':av<425?'b':'a',start:av,added:Date.now(),tierAt:Date.now()};saveDB(true);flash=null;dbChanged();break;
     case 'ghSave':
@@ -974,7 +976,9 @@ function sheetHTML(d){
     return '<div class="scrim" data-act="closeSheet"></div><div class="sheet" role="dialog" aria-modal="true"><div class="sheet-head"><div><h2>'+h(rp.name)+' · Hub '+rp.rating+'</h2><p>'+rp.games+' racks, '+rp.w+' won, '+rp.l+' lost. The starting Hub Rating is where they begin; their results move them from there.</p></div></div>'+
       '<div class="sheet-sec"><h3>Starting Hub Rating</h3><div class="sheet-row"><input class="tin" id="start-in" type="number" min="100" max="1000" inputmode="numeric" value="'+startNow+'" style="max-width:140px"><button class="primary" data-act="setStart" data-k="'+h(rp.key)+'">Save</button></div><p>Type an exact number, for example their FargoRate. 500 is average.</p></div>'+
       '<div class="sheet-sec"><h3>Or use a level</h3><div class="choices">'+[['b','Beginner',400],['a','Average',500],['s','Strong',600]].map(function(t){return '<button data-act="setTier" data-k="'+h(rp.key)+'" data-v="'+t[0]+'">'+t[1]+' ('+t[2]+')'+(!custom&&rp.tier===t[0]?' ✓':'')+'</button>'}).join('')+'</div></div>'+
-      '<div class="choices"><button data-act="sheet" data-v="ratings">Back</button></div></div>'}
+      '<div class="choices"><button class="danger" data-act="sheet" data-v="delrated" data-id="'+h(rp.key)+'">Remove from Hub Ratings</button><button data-act="sheet" data-v="ratings">Back</button></div></div>'}
+  if(s.t==='delrated'){var dp2=DB.players[s.id];if(!dp2)return '';
+    return actionSheet('Remove '+h(dp2.name)+'?','They disappear from Hub Ratings and the name suggestions. Their results stay saved, so if they play again later they come back with the same Hub Rating.',[{label:'Remove '+h(dp2.name),cls:'danger',attrs:'data-act="delRated" data-k="'+h(s.id)+'"'}])}
   if(s.t==='player'){var p=d.P[s.id];if(!p)return '';
     var rows=[];
     if(p.alive)rows.push({label:p.away?'Back and Ready':'Mark as Away',attrs:'data-act="away" data-p="'+p.id+'"'});
@@ -1010,7 +1014,7 @@ function renderSetup(){
   var rn=function(a){var r=draft.race||1;return '<b class="rn" data-add="'+a+'">'+(a==='cap'?Math.max(r*3,4):r+a)+'</b>'};
   var err=setupError(),isDE=draft.type==='de',total=draft.players.reduce(function(a,p){return a+p.chips},0);
   var R=ratings(),seen={},names=[];
-  REGULARS.concat(Object.keys(R).map(function(k){return R[k].name})).forEach(function(n){var k=nkey(n);if(!seen[k]){seen[k]=1;names.push(n)}});
+  REGULARS.concat(Object.keys(R).map(function(k){return R[k].name})).forEach(function(n){var k=nkey(n);if(!seen[k]&&!(DB.players[k]&&DB.players[k].hidden)){seen[k]=1;names.push(n)}});
   names.sort(function(a,b){return a.localeCompare(b)});
   var rows=draft.players.map(function(p,i){
     var kn=known(p.name),auto=autoChips(p);if(!p.manual)p.chips=auto;
