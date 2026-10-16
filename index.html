@@ -94,6 +94,8 @@ textarea{min-height:160px;resize:vertical;padding:1rem;line-height:1.5}
 :root[data-theme="light"] .add{background:#dcfce7;color:#166534}
 .plist .addrow select{width:auto;margin:0;border:1px solid var(--field);border-radius:6px;background:var(--panel);color:var(--text);padding:.35rem .4rem;font-size:.85rem}
 .nochips .chip-adjuster{display:none}
+select{-webkit-appearance:none;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%239aa3b6' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")!important;background-repeat:no-repeat!important;background-position:right .75rem center!important;background-size:12px 8px!important;padding-right:2.2rem!important;cursor:pointer}
+.pmeta select{background-position:right .4rem center!important;background-size:9px 6px!important;padding-right:1.35rem!important}
 
 /* bracket layout */
 .layout{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:1rem;align-items:start;margin-top:1rem}
@@ -192,9 +194,12 @@ button.player-name{background:none;border:0;padding:0;text-align:left;border-rad
 .pool-table-surface .player-row small{align-self:center;min-width:48px;min-height:40px;border:0;border-radius:12px;background:rgba(0,84,158,.34);color:#f8fafc;font-weight:900}
 .pool-table-surface button.player-row:not(:disabled):hover{background:rgba(3,34,64,.42)}
 .pool-table-surface .player-row.winner{outline:2px solid var(--gold);outline-offset:-2px;box-shadow:0 0 18px rgba(251,191,36,.28);background:rgba(3,34,64,.3);color:#fff}
-.pool-table-surface .player-row.returning-winner{background:linear-gradient(90deg,rgba(36,202,251,.42),rgba(3,34,64,.2));box-shadow:inset 4px 0 #24a4fb;color:#fff}
-.pool-table-surface .player-row.returning-winner small{border-radius:0 10px 10px 0;background:rgba(6,158,255,.55);color:#fff}
-.pool-table-surface .player-row.returning-winner.winner{box-shadow:inset 4px 0 #24a4fb,0 0 18px rgba(251,191,36,.3)}
+.pool-table-surface .player-row.flash{outline:2px solid transparent;outline-offset:-2px;animation:winflash 1.6s ease-out both}
+@keyframes winflash{0%,45%{outline-color:var(--gold);background:rgba(36,164,251,.45);box-shadow:0 0 18px rgba(251,191,36,.35)}100%{outline-color:transparent;background:rgba(3,34,64,.18);box-shadow:0 0 0 rgba(0,0,0,0)}}
+.pool-table-surface .player-row.flash .tag{animation:tagout 1.6s ease-out both}
+@keyframes tagout{0%,55%{opacity:1}100%{opacity:0}}
+.pool-table-surface .player-row.enter{animation:slidein .5s cubic-bezier(.2,.8,.2,1) both}
+@keyframes slidein{from{opacity:0;transform:translateX(-28px)}to{opacity:1;transform:none}}
 .pool-table-surface .player-row.bye{color:#c9d6e5;background:rgba(3,34,64,.18)}
 .pool-table-surface .player-row .tag{background:rgba(0,0,0,.35);color:#fff}
 .chip-table-footer{display:flex;align-items:center;justify-content:space-between;gap:.5rem;flex-wrap:wrap;margin-top:.8rem;color:#b9c2d2;font-size:.92rem;font-weight:800}
@@ -862,9 +867,7 @@ function settingsSheet(){
       '<div class="choices"><button class="primary" data-act="ghSave">'+(gh.token?'Save and Sync':'Connect')+'</button>'+(gh.token?'<button data-act="ghSync">Sync Now</button><button class="danger" data-act="ghOff">Forget Token on This Phone</button>':'')+'</div>'+
       '<p><span id="sync-line">'+syncText()+'</span> The token stays on this phone. Other phones can view ratings without one.</p></div>';
   }
-  out+='<div class="sheet-sec"><h3>Sharing</h3><p>'+h(modeText())+'</p>'+
-    (can&&S.phase!=='setup'?'<button data-act="viewOn">Preview Player View</button>':'')+
-    (mode==='readonly'?'<button data-act="claim">I’m the Director</button>':'')+'</div>';
+  if(mode==='readonly')out+='<div class="sheet-sec"><p>'+h(modeText())+'</p><button data-act="claim">I’m the Director</button></div>';
   return '<div class="scrim" data-act="closeSheet"></div><div class="sheet" role="dialog" aria-modal="true" aria-label="Settings"><div class="sheet-head"><h2>Settings</h2><button data-act="closeSheet">Done</button></div>'+out+'</div>';
 }
 function actionSheet(title,msg,rows){
@@ -929,7 +932,7 @@ function renderSetup(){
   rows+='<li class="addrow"><button class="rm add" data-act="dAdd" aria-label="Add player">+</button><input class="tin" id="new-name" placeholder="Add player" maxlength="40" list="known-names" autocomplete="off"><select id="new-tier" aria-label="Level for a new player"><option value="b">Beginner</option><option value="a" selected>Average</option><option value="s">Strong</option></select></li>';
   var out='<section class="entry-panel">'+
     '<div class="format-picker" role="group" aria-label="Tournament format"><button class="'+(isDE?'active':'')+'" data-act="dType" data-v="de">Double Elim</button><button class="'+(!isDE?'active':'')+'" data-act="dType" data-v="chip">Chip Tournament</button></div>'+
-    '<div class="setup-grid"><label class="span2">Tournament name<input id="d-title" value="'+h(draft.title)+'" maxlength="60" placeholder="Tournament name"></label>'+
+    '<div class="setup-grid">'+
     '<label>Tables<input id="d-tables" type="number" min="1" max="12" value="'+draft.tables+'"></label>'+
     '<label>Race to<input id="d-race" type="number" min="1" max="9" value="'+(draft.race||1)+'"></label>'+
     (isDE?'<p class="setup-note span2">Random draw. Lose twice and you’re out. Everyone plays the same race.</p>':
@@ -985,7 +988,7 @@ function renderDE(){
   var D=deCompute(S),de=S.de,done=S.phase==='done',N=deNameMap(),R=deRecord(S),can=canAct(),race=S.race||1;
   var still=S.players.filter(function(p){return done?p.id===D.champ:R[p.id].l<2});
   var ready=D.list.filter(function(m){return m.state==='ready'}).length,byes=D.list.filter(function(m){return m.state==='bye'&&m.b==='W'&&m.r===1&&m.w}).length;
-  var title=done&&D.champ?N[D.champ]+' is champion':S.title||'Tournament Bracket';
+  var title=done&&D.champ?N[D.champ]+' is champion':'Tournament Bracket';
   var sub=S.players.length+' players, '+de.P+'-slot bracket, '+byes+' bye'+(byes===1?'':'s')+', '+(done?'finished':ready+' ready match'+(ready===1?'':'es')+' · race to '+race+' · '+still.length+' still in');
   var mt=['wb','lb','finals','players'].indexOf(ui.btab)>=0?ui.btab:deAutoTab(D);
   var hasL=D.list.some(function(m){return m.b==='L'});
@@ -1043,11 +1046,14 @@ function chipTables(d){
   var live={};S.matches.forEach(function(m){if(m.status==='live')live[m.table]=m});
   var blocked={};(S.blocked||[]).forEach(function(b){blocked[b.table]=b});
   var hold=S.hold||{},out='',can=canAct(),age=ui.last?Date.now()-ui.last.at:1e9,race=S.race||1;
-  function row(p,m,t,cls){
-    var hi=ui.last&&age<3000&&ui.last.wid===p.id&&ui.last.table===t;
-    var c='player-row'+(cls?' '+cls:'')+(hi?' winner':'');
-    var inner='<span>'+h(p.name)+(hi?'<span class="tag">Winner</span>':'')+'</span><small>'+p.cur+'</small>';
-    return m&&can?'<button class="'+c+'" data-act="pick" data-m="'+m.id+'" data-w="'+p.id+'" aria-label="'+h(p.name)+' won">'+inner+'</button>':'<div class="'+c+'">'+inner+'</div>';
+  var now=Date.now();
+  function row(p,m,t,cls,enterDelay){
+    var hi=ui.last&&age<1700&&ui.last.wid===p.id&&ui.last.table===t;
+    var newAge=m?now-m.startedAt:1e9,enter=enterDelay!=null&&!hi&&newAge<1200;
+    var c='player-row'+(cls?' '+cls:'')+(hi?' flash':'')+(enter?' enter':'');
+    var st=hi?' style="animation-delay:-'+age+'ms"':enter?' style="animation-delay:'+(enterDelay-newAge)+'ms"':'';
+    var inner='<span>'+h(p.name)+(hi?'<span class="tag"'+st+'>Winner</span>':'')+'</span><small>'+p.cur+'</small>';
+    return m&&can?'<button class="'+c+'"'+st+' data-act="pick" data-m="'+m.id+'" data-w="'+p.id+'" aria-label="'+h(p.name)+' won">'+inner+'</button>':'<div class="'+c+'"'+st+'>'+inner+'</div>';
   }
   for(var t=1;t<=S.tables;t++){
     var m=live[t],u=can?undoable(S,t):null,prev=lastOnTable(t);
@@ -1056,12 +1062,12 @@ function chipTables(d){
     if(m){
       var A=d.P[m.a],B=d.P[m.b],ret=stays(S)&&prev&&prev.winner===m.a;
       right='<span class="elapsed" data-t="'+m.startedAt+'">'+mins(m.startedAt)+'</span>'+undo+(can?'<button class="more-btn" data-act="sheet" data-v="cancel" data-id="'+m.id+'" aria-label="More options for table '+t+'">•••</button>':'');
-      surface=row(A,m,t,ret?'returning-winner':'')+row(B,m,t,'');
+      surface=row(A,m,t,'',ret?null:0)+row(B,m,t,'',ret?80:120);
       foot='<span>Match '+m.n+(race>1?' · race to '+race:'')+'</span>'+(can&&t===1&&!ui.last?'<span class="muted" style="font-weight:700">Tap the winner</span>':'');
     }else if(hold[t]&&d.P[hold[t]]){
       var H=d.P[hold[t]],canForce0=can&&d.active.some(function(p){return !p.busy&&p.id!==H.id});
       right=undo;
-      surface=row(H,null,t,'returning-winner')+'<div class="player-row bye"><span>Waiting for a challenger</span><small></small></div>';
+      surface=row(H,null,t,'')+'<div class="player-row bye"><span>Waiting for a challenger</span><small></small></div>';
       foot='<span>Winner stays</span>'+(canForce0?'<button data-act="force" data-t="'+t+'">Draw Now</button>':'');
     }else{
       var b=blocked[t],msg='Waiting for players';
