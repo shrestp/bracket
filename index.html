@@ -1122,7 +1122,7 @@ function chipTables(d){
     }else if(hold[t]&&d.P[hold[t]]){
       var H=d.P[hold[t]],canForce0=can&&d.active.some(function(p){return !p.busy&&p.id!==H.id});
       right=undo;
-      surface=row(H,null,t,'')+'<div class="player-row bye"><span>Waiting for a challenger</span><small></small></div>';
+      surface=row(H,null,t,'')+'<div class="player-row bye"><span>Waiting...</span><small></small></div>';
       foot='<span>Winner stays</span>'+(canForce0?'<button data-act="force" data-t="'+t+'">Draw Now</button>':'');
     }else{
       var b=blocked[t],msg='Waiting for players';
