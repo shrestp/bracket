@@ -441,7 +441,7 @@ function dbGames(db){
 function ratings(){
   var key=JSON.stringify(DB);if(RC&&key===RCkey)return RC;
   var keys=Object.keys(DB.players),R={},st={},by={},out={};
-  keys.forEach(function(k){st[k]=(TIERS[DB.players[k].tier]||TIERS.a).start;R[k]=st[k];by[k]=[];out[k]={w:0,l:0}});
+  keys.forEach(function(k){var pp=DB.players[k];st[k]=pp.start!=null&&isFinite(pp.start)?+pp.start:(TIERS[pp.tier]||TIERS.a).start;R[k]=st[k];by[k]=[];out[k]={w:0,l:0}});
   dbGames(DB).forEach(function(x){if(!by[x[0]]||!by[x[1]])return;by[x[0]].push([x[1],1]);by[x[1]].push([x[0],0]);out[x[0]].w++;out[x[1]].l++});
   var c=Math.LN2/100,prior=1/(150*150);
   for(var it=0;it<80;it++){keys.forEach(function(k){
@@ -449,7 +449,7 @@ function ratings(){
     by[k].forEach(function(o){var q=1/(1+Math.pow(2,-(R[k]-R[o[0]])/100));g+=c*(o[1]-q);H-=c*c*q*(1-q)});
     R[k]-=g/H;
   })}
-  keys.forEach(function(k){var r=Math.round(R[k]),n=out[k].w+out[k].l;out[k]={key:k,name:DB.players[k].name,tier:DB.players[k].tier,rating:r,games:n,w:out[k].w,l:out[k].l,prov:n<PROV,chips:chipsFor(r),level:levelFor(r)}});
+  keys.forEach(function(k){var r=Math.round(R[k]),n=out[k].w+out[k].l;out[k]={key:k,name:DB.players[k].name,tier:DB.players[k].tier,start:DB.players[k].start,rating:r,games:n,w:out[k].w,l:out[k].l,prov:n<PROV,chips:chipsFor(r),level:levelFor(r)}});
   RC=out;RCkey=key;return out;
 }
 function known(name){var k=nkey(name);return k&&DB.players[k]?ratings()[k]:null}
@@ -464,6 +464,7 @@ function recordTournament(st){
     matches:(st.type==='de'?deCompute(st).list.filter(function(m){return m.state==='done'}).map(function(m){return {winner:m.w,a:m.p1,b:m.p2,rw:m.rw||st.race||1,rl:m.rl||0}}):st.matches.filter(function(m){return m.status==='done'})).map(function(m){var l=m.winner===m.a?m.b:m.a;return {w:P[m.winner],l:P[l],rw:m.rw||1,rl:m.rl||0}})};
   saveDB(true);
 }
+function dbChanged(){if(mode==='shared'&&canAct()){var st=clone(S);ui._keepSheet=ui.sheet;commit(st)}else render()}
 function saveDB(push){lsSet(LS_DB,DB);RC=null;if(push&&canSync())schedulePush()}
 function canSync(){return mode==='local'&&!!gh.token&&!!gh.repo}
 function ghURL(){return 'https://api.github.com/repos/'+gh.repo+'/contents/ratings.json'}
@@ -498,12 +499,12 @@ function ghPush(retry){
   }).catch(function(e){sync.state='error';sync.msg=e&&e.message||'Could not reach GitHub.';paintSync()});
 }
 function syncText(){
-  if(mode==='shared'||mode==='readonly')return 'Ratings are saved with this page.';
-  if(!gh.token)return 'Ratings are saved on this phone only. Connect GitHub in Settings to keep them in the repo.';
-  if(sync.state==='saving'||sync.state==='pending')return 'Saving ratings to GitHub…';
+  if(mode==='shared'||mode==='readonly')return 'Hub Ratings are saved with this page.';
+  if(!gh.token)return 'Hub Ratings are saved on this phone only. Connect GitHub in Settings to keep them in the repo.';
+  if(sync.state==='saving'||sync.state==='pending')return 'Saving Hub Ratings to GitHub…';
   if(sync.state==='error')return sync.msg;
-  if(sync.state==='saved')return 'Ratings saved to GitHub '+mins(sync.at).replace('just started','just now')+(sync.at&&Date.now()-sync.at>=60000?' ago':'')+'.';
-  return 'Ratings sync with GitHub ('+h(gh.repo)+').';
+  if(sync.state==='saved')return 'Hub Ratings saved to GitHub '+mins(sync.at).replace('just started','just now')+(sync.at&&Date.now()-sync.at>=60000?' ago':'')+'.';
+  return 'Hub Ratings sync with GitHub ('+h(gh.repo)+').';
 }
 function paintSync(){var el=document.getElementById('sync-line');if(el)el.textContent=syncText()}
 
@@ -706,7 +707,7 @@ function commit(next,attempt){
   next.updatedAt=Date.now();
   recordTournament(next);
   if(mode==='shared')next.db=DB;
-  ui.pending=null;ui.confirm=null;if(ui.sheet&&ui.sheet.t!=='settings')ui.sheet=null;
+  ui.pending=null;ui.confirm=null;if(ui._keepSheet){ui.sheet=ui._keepSheet;ui._keepSheet=null}else if(ui.sheet&&ui.sheet.t!=='settings')ui.sheet=null;
   if(mode==='local'){S=next;lsSet(LS_STATE,S);flash=null;render();return}
   if(mode!=='shared')return;
   saving=true;render();
@@ -774,7 +775,15 @@ function act(name,el){
     case 'dTier':var tp=draft.players.find(function(x){return x.id===ds.p});if(tp){tp.tier=ds.v;tp.manual=false}saveDraft();render();break;
     case 'dAuto':var ap=draft.players.find(function(x){return x.id===ds.p});if(ap)ap.manual=false;saveDraft();render();break;
     case 'stab':ui.stab=ds.v;render();break;
-    case 'setTier':var k0=ds.k;if(DB.players[k0]){DB.players[k0].tier=ds.v;DB.players[k0].tierAt=Date.now();saveDB(true)}ui.sheet=null;render();break;
+    case 'setTier':var k0=ds.k;if(DB.players[k0]){DB.players[k0].tier=ds.v;delete DB.players[k0].start;DB.players[k0].tierAt=Date.now();saveDB(true)}ui.sheet={t:'ratings'};ui.sheetAt=Date.now();dbChanged();break;
+    case 'setStart':var k1=ds.k,sv=parseInt((document.getElementById('start-in')||{}).value,10);
+      if(!DB.players[k1]||!(sv>=100&&sv<=1000)){flash='Enter a Hub Rating between 100 and 1000.';render();return}
+      DB.players[k1].start=sv;DB.players[k1].tier=sv>=575?'s':sv<425?'b':'a';DB.players[k1].tierAt=Date.now();saveDB(true);ui.sheet={t:'ratings'};ui.sheetAt=Date.now();flash=null;dbChanged();break;
+    case 'addRated':var an=((document.getElementById('nr-name')||{}).value||'').trim(),av=parseInt((document.getElementById('nr-val')||{}).value,10),ak=nkey(an);
+      if(!an){flash='Type a name first.';render();return}
+      if(DB.players[ak]){flash=an+' already has a Hub Rating. Tap their name to change it.';render();return}
+      if(!(av>=100&&av<=1000))av=500;
+      DB.players[ak]={name:an,tier:av>=575?'s':av<425?'b':'a',start:av,added:Date.now(),tierAt:Date.now()};saveDB(true);flash=null;dbChanged();break;
     case 'ghSave':
       var rv=(document.getElementById('gh-repo')||{}).value,tv=(document.getElementById('gh-token')||{}).value;
       gh.repo=String(rv||'').trim().replace(/^https?:\/\/github\.com\//,'').replace(/\/$/,'');if(tv&&tv.trim())gh.token=tv.trim();
@@ -910,7 +919,7 @@ function toolbar(){
   if(location.hash==='#view'&&(mode==='shared'||mode==='local'))return '<button data-act="viewOff">Back to Director View</button>';
   var can=canAct(),u=lastUndo(),out='';
   if(can)out+='<button data-act="'+(u?u.act:'undo')+'" data-m="'+(u?u.m:'')+'" '+(u?'':'disabled')+'>Undo Last Result</button>';
-  out+='<button data-act="sheet" data-v="ratings">Ratings</button><button data-act="sheet" data-v="settings">Settings</button>';
+  out+='<button data-act="sheet" data-v="ratings">Hub Rating</button><button data-act="sheet" data-v="settings">Settings</button>';
   if(can)out+='<button class="danger" data-act="sheet" data-v="reset">'+(S.phase==='done'?'New Tournament':'Reset Tournament')+'</button>';
   return out;
 }
@@ -924,16 +933,16 @@ function settingsSheet(){
       '<div class="sheet-row"><span>Tables</span>'+stepper('tables',S.tables,1,12,'tables')+'</div>'+
       '<div class="sheet-row"><span>Race to</span>'+stepper('race',S.race||1,1,9,'race length')+'</div>'+
       (S.tables>1?'<div class="sheet-row"><span>Close first</span><select id="s-worst" class="tin" style="width:auto;margin:0">'+closeOpts(worstTable(S),S.tables)+'</select></div>':'')+
-      (S.type==='de'?toggle('hcToggle',!!(S.hc&&S.rt),'Handicap by rating')+'<p>'+(S.hc&&S.rt?'The race above is for the lower-rated player. ':'')+'Changes apply to matches not yet scored.</p>':
+      (S.type==='de'?toggle('hcToggle',!!(S.hc&&S.rt),'Handicap by Hub Rating')+'<p>'+(S.hc&&S.rt?'The race above is for the lower-rated player. ':'')+'Changes apply to matches not yet scored.</p>':
         toggle('stay',stays(S),'Winner stays on table')+
         '<div class="sheet-row" style="display:block"><span style="display:block;margin-bottom:.5rem">Draw pace</span>'+seg('leadSet',[[1,'Strict'],[2,'Balanced'],[99,'Fastest']],S.leadLimit)+'</div><p>'+(stays(S)?'The winner keeps the table and plays the next challenger. ':'')+paceText(S.leadLimit)+'</p>')+'</div>';
   }
   if(mode==='local'){
-    out+='<div class="sheet-sec"><h3>Ratings on GitHub</h3>'+
+    out+='<div class="sheet-sec"><h3>Hub Ratings on GitHub</h3>'+
       '<label class="flabel" style="margin:0">Repository<input class="tin" id="gh-repo" value="'+h(gh.repo||'')+'" placeholder="owner/repo" autocapitalize="off" autocomplete="off" spellcheck="false" style="margin-top:.35rem"></label>'+
       '<label class="flabel" style="margin:0">Token<input class="tin" id="gh-token" type="password" placeholder="'+(gh.token?'Saved on this phone':'Paste a GitHub token')+'" autocomplete="off" style="margin-top:.35rem"></label>'+
       '<div class="choices"><button class="primary" data-act="ghSave">'+(gh.token?'Save and Sync':'Connect')+'</button>'+(gh.token?'<button data-act="ghSync">Sync Now</button><button class="danger" data-act="ghOff">Forget Token on This Phone</button>':'')+'</div>'+
-      '<p><span id="sync-line">'+syncText()+'</span> The token stays on this phone. Other phones can view ratings without one.</p></div>';
+      '<p><span id="sync-line">'+syncText()+'</span> The token stays on this phone. Other phones can view Hub Ratings without one.</p></div>';
   }
   if(mode==='readonly')out+='<div class="sheet-sec"><p>'+h(modeText())+'</p><button data-act="claim">I’m the Director</button></div>';
   return '<div class="scrim" data-act="closeSheet"></div><div class="sheet" role="dialog" aria-modal="true" aria-label="Settings"><div class="sheet-head"><h2>Settings</h2><button data-act="closeSheet">Done</button></div>'+out+'</div>';
@@ -945,7 +954,7 @@ function actionSheet(title,msg,rows){
 function sheetHTML(d){
   var s=ui.sheet;if(!s)return '';
   if(s.t==='settings')return settingsSheet();
-  if(s.t==='ratings')return '<div class="scrim" data-act="closeSheet"></div><div class="sheet wide-sheet" role="dialog" aria-modal="true" aria-label="Ratings"><div class="sheet-head"><h2>Ratings</h2><button data-act="closeSheet">Done</button></div>'+ratingsHTML(true)+'</div>';
+  if(s.t==='ratings')return '<div class="scrim" data-act="closeSheet"></div><div class="sheet wide-sheet" role="dialog" aria-modal="true" aria-label="Hub Ratings"><div class="sheet-head"><h2>Hub Ratings</h2><button data-act="closeSheet">Done</button></div>'+(flash?'<p class="flash" style="margin:0">'+h(flash)+'</p>':'')+ratingsHTML(true)+(canAct()?'<div class="sheet-sec"><h3>Add a player with a starting Hub Rating</h3><div class="sheet-row"><input class="tin" id="nr-name" placeholder="Name" list="known-names2" autocomplete="off"><input class="tin" id="nr-val" type="number" min="100" max="1000" inputmode="numeric" placeholder="500" style="max-width:96px"><button class="primary" data-act="addRated">Add</button></div><datalist id="known-names2">'+REGULARS.filter(function(n){return !DB.players[nkey(n)]}).map(function(n){return '<option value="'+h(n)+'">'}).join('')+'</datalist></div>':'')+'</div>';
   if(!canAct())return '';
   if(s.t==='reset')return actionSheet(S.phase==='done'?'Start a new tournament?':'Reset this tournament?','Every result is cleared. Your player list is kept so you can edit it. Ratings keep everything already played.',[{label:S.phase==='done'?'New Tournament':'Reset Tournament',cls:'danger',attrs:'data-act="reset"'}]);
   if(s.t==='cancel'){var m=S.matches.find(function(x){return x.id===s.id});if(!m)return '';
@@ -959,8 +968,12 @@ function sheetHTML(d){
   if(s.t==='race'){var rm=S.matches.find(function(x){return x.id===s.id});if(!rm)return '';var rw=d.P[s.w],rl=d.P[s.w===rm.a?rm.b:rm.a],race=S.race||1,rr=[];
     for(var li=0;li<race;li++)rr.push({label:h(rw.name)+' '+race+'–'+li,cls:'primary',attrs:'data-act="win" data-m="'+rm.id+'" data-w="'+s.w+'" data-rl="'+li+'"'});
     return actionSheet('Final score','Race to '+race+'. '+h(rw.name)+' beat '+h(rl.name)+'. How many racks did '+h(rl.name)+' win?',rr)}
-  if(s.t==='rated'){var rp=ratings()[s.id];if(!rp)return '';
-    return actionSheet(h(rp.name)+' · '+rp.rating,rp.games+' racks, '+rp.w+' won, '+rp.l+' lost. Starting level only matters until they have results.',[['b','Beginner'],['a','Average'],['s','Strong']].map(function(t){return {label:'Starting level: '+t[1]+(rp.tier===t[0]?' ✓':''),attrs:'data-act="setTier" data-k="'+h(rp.key)+'" data-v="'+t[0]+'"'}}))}
+  if(s.t==='rated'){var rp=ratings()[s.id];if(!rp)return '';var custom=rp.start!=null;
+    var startNow=custom?rp.start:(TIERS[rp.tier]||TIERS.a).start;
+    return '<div class="scrim" data-act="closeSheet"></div><div class="sheet" role="dialog" aria-modal="true"><div class="sheet-head"><div><h2>'+h(rp.name)+' · Hub '+rp.rating+'</h2><p>'+rp.games+' racks, '+rp.w+' won, '+rp.l+' lost. The starting Hub Rating is where they begin; their results move them from there.</p></div></div>'+
+      '<div class="sheet-sec"><h3>Starting Hub Rating</h3><div class="sheet-row"><input class="tin" id="start-in" type="number" min="100" max="1000" inputmode="numeric" value="'+startNow+'" style="max-width:140px"><button class="primary" data-act="setStart" data-k="'+h(rp.key)+'">Save</button></div><p>Type an exact number, for example their FargoRate. 500 is average.</p></div>'+
+      '<div class="sheet-sec"><h3>Or use a level</h3><div class="choices">'+[['b','Beginner',400],['a','Average',500],['s','Strong',600]].map(function(t){return '<button data-act="setTier" data-k="'+h(rp.key)+'" data-v="'+t[0]+'">'+t[1]+' ('+t[2]+')'+(!custom&&rp.tier===t[0]?' ✓':'')+'</button>'}).join('')+'</div></div>'+
+      '<div class="choices"><button data-act="sheet" data-v="ratings">Back</button></div></div>'}
   if(s.t==='player'){var p=d.P[s.id];if(!p)return '';
     var rows=[];
     if(p.alive)rows.push({label:p.away?'Back and Ready':'Mark as Away',attrs:'data-act="away" data-p="'+p.id+'"'});
@@ -977,11 +990,11 @@ function autoChips(x){var kn=known(x.name);return kn?kn.chips:chipsFor((TIERS[x.
 function ratingsHTML(inSheet){
   var R=ratings(),list=Object.keys(R).map(function(k){return R[k]}).sort(function(a,b){return b.rating-a.rating||a.name.localeCompare(b.name)});
   var can=canAct(),line='<p class="panel-note" id="sync-line">'+syncText()+'</p>';
-  var body=!list.length?'<p class="muted" style="margin:0">No ratings yet. Every rack you record counts.</p>':
+  var body=!list.length?'<p class="muted" style="margin:0">No Hub Ratings yet. Add players below, or just play: every rack you record counts.</p>':
     '<ol class="chip-standings-list rlist">'+list.map(function(r,i){
-      var nm=h(r.name)+(r.prov?'<span class="newtag">New</span>':'')+'<small>'+r.games+' rack'+(r.games===1?'':'s')+' · '+r.w+'–'+r.l+' · '+r.level+'</small>';
+      var nm=h(r.name)+(r.prov?'<span class="newtag">New</span>':'')+'<small>'+r.games+' rack'+(r.games===1?'':'s')+' · '+r.w+'–'+r.l+' · '+r.level+(r.start!=null?' · started '+r.start:'')+'</small>';
       return '<li><span class="qrank">'+(i+1)+'</span>'+(can?'<button class="player-name" data-act="sheet" data-v="rated" data-id="'+h(r.key)+'">'+nm+'</button>':'<span class="player-name">'+nm+'</span>')+'<span class="rnum">'+r.rating+'</span><strong title="Chips">'+r.chips+'</strong></li>'}).join('')+'</ol>';
-  return '<aside class="'+(inSheet?'rsheet':'side-panel')+'"><div class="panel-heading">'+(inSheet?'<span class="muted" style="font-weight:800;font-size:.85rem">'+list.length+' players</span>':'<h2>Ratings</h2>')+'<span class="muted" style="font-weight:800;font-size:.85rem">Rating · Chips</span></div>'+body+
+  return '<aside class="'+(inSheet?'rsheet':'side-panel')+'"><div class="panel-heading">'+(inSheet?'<span class="muted" style="font-weight:800;font-size:.85rem">'+list.length+' players</span>':'<h2>Hub Ratings</h2>')+'<span class="muted" style="font-weight:800;font-size:.85rem">Hub · Chips</span></div>'+body+
     (list.length?'<p class="panel-note">100 points apart means the higher player is expected to win 2 racks for every 1. 575 and up get 4 chips, 500–574 get 5, 425–499 get 6, under 425 get 7. “New” means fewer than '+PROV+' racks.</p>':'')+line+'</aside>';
 }
 
@@ -1000,7 +1013,7 @@ function renderSetup(){
   names.sort(function(a,b){return a.localeCompare(b)});
   var rows=draft.players.map(function(p,i){
     var kn=known(p.name),auto=autoChips(p);if(!p.manual)p.chips=auto;
-    var meta=kn?'Rating '+kn.rating+(kn.prov?' · new':'')+(isDE?'':' · '+(p.manual?'you set '+p.chips+' · <button class="linkish" data-act="dAuto" data-p="'+p.id+'">use '+auto+'</button>':'auto '+auto+' chips'))
+    var meta=kn?'Hub '+kn.rating+(kn.prov?' · new':'')+(isDE?'':' · '+(p.manual?'you set '+p.chips+' · <button class="linkish" data-act="dAuto" data-p="'+p.id+'">use '+auto+'</button>':'auto '+auto+' chips'))
       :'New player · <select data-tier="'+p.id+'" aria-label="Level for '+h(p.name)+'">'+[['b','Beginner'],['a','Average'],['s','Strong']].map(function(t){return '<option value="'+t[0]+'"'+((p.tier||'a')===t[0]?' selected':'')+'>'+t[1]+'</option>'}).join('')+'</select>'+(!isDE&&p.manual?' · you set '+p.chips+' · <button class="linkish" data-act="dAuto" data-p="'+p.id+'">use '+auto+'</button>':'');
     return '<li><button class="rm" data-act="dRemove" data-p="'+p.id+'" aria-label="Remove '+h(p.name)+'">×</button><span><input class="tin" data-name="'+p.id+'" id="n-'+p.id+'" value="'+h(p.name)+'" aria-label="Player '+(i+1)+' name" maxlength="40" list="known-names" autocomplete="off"><span class="pmeta">'+meta+'</span></span>'+
       '<span class="chip-adjuster" aria-label="'+h(p.name)+' chips"><button data-act="dChips" data-p="'+p.id+'" data-d="-1" '+(p.chips<=1?'disabled':'')+' aria-label="Fewer chips">-</button><strong data-bump="d'+p.id+'">'+p.chips+'</strong><button data-act="dChips" data-p="'+p.id+'" data-d="1" '+(p.chips>=9?'disabled':'')+' aria-label="More chips">+</button></span></li>'}).join('');
@@ -1011,19 +1024,19 @@ function renderSetup(){
     '<label>Tables<input id="d-tables" type="number" min="1" max="12" value="'+draft.tables+'"></label>'+
     '<label>Race to<input id="d-race" type="number" min="1" max="9" value="'+(draft.race||1)+'"></label>'+
     (draft.tables>1?'<label class="span2">Close first when short of players<select id="d-worst">'+closeOpts(draft.worst==null?2:+draft.worst,draft.tables)+'</select></label>':'')+
-    (isDE?'<label class="span2">Races<span style="display:block">'+toggle('dHc',draft.hc!==false,'Handicap by rating')+'</span></label><p class="setup-note span2">Random draw. Lose two matches and you’re out. '+(draft.hc!==false?'The lower-rated player races to '+rn(0)+'. The higher-rated player races one rack more for every 50 rating points between them: 0–49 apart '+rn(0)+'–'+rn(0)+', 50–99 apart '+rn(1)+'–'+rn(0)+', 100–149 apart '+rn(2)+'–'+rn(0)+', and so on, up to '+rn('cap')+'.':'Everyone races to '+rn(0)+'.')+'</p>':
+    (isDE?'<label class="span2">Races<span style="display:block">'+toggle('dHc',draft.hc!==false,'Handicap by Hub Rating')+'</span></label><p class="setup-note span2">Random draw. Lose two matches and you’re out. '+(draft.hc!==false?'The lower-rated player races to '+rn(0)+'. The higher-rated player races one rack more for every 50 rating points between them: 0–49 apart '+rn(0)+'–'+rn(0)+', 50–99 apart '+rn(1)+'–'+rn(0)+', 100–149 apart '+rn(2)+'–'+rn(0)+', and so on, up to '+rn('cap')+'.':'Everyone races to '+rn(0)+'.')+'</p>':
       '<label>Winner<span style="display:block">'+toggle('dStay',draft.stay!==false,'Stays on table')+'</span></label>'+
       '<label>Draw pace<select id="d-pace"><option value="1"'+(draft.leadLimit===1?' selected':'')+'>Strict</option><option value="2"'+(draft.leadLimit===2?' selected':'')+'>Balanced</option><option value="99"'+(draft.leadLimit===99?' selected':'')+'>Fastest</option></select></label>'+
       '<p class="setup-note span2">'+(draft.stay!==false?'The winner keeps the table and plays the next challenger. ':'')+paceText(draft.leadLimit)+'</p>')+'</div>'+
     '<span class="flabel">'+(isDE?'Player names':'Players and chip counts')+'</span>'+
     '<ul class="plist'+(isDE?' nochips':'')+'">'+rows+'</ul><datalist id="known-names">'+names.map(function(n){return '<option value="'+h(n)+'">'}).join('')+'</datalist>'+
-    '<p class="setup-note">'+(draft.example?'These are example players. Replace them with your own. ':'')+(isDE?'Pick a level for new players so their rating starts in the right place. ':'Known players get chips from their rating. Pick a level for new players. ')+
+    '<p class="setup-note">'+(draft.example?'These are example players. Replace them with your own. ':'')+(isDE?'Pick a level for new players so their Hub Rating starts in the right place. ':'Known players get chips from their Hub Rating. Pick a level for new players. ')+
       '<button class="linkish" data-act="dPasteToggle">'+(ui.paste?'Hide paste box':'Paste a list')+'</button>'+(draft.players.length?' · <button class="linkish" data-act="dClear">Clear all</button>':'')+'</p>'+
     (ui.paste?'<textarea id="paste-box" placeholder="One player per line'+(isDE?'':', name then chips:&#10;Prajesh, 4&#10;Amit, 5')+'" spellcheck="false"></textarea><div class="entry-actions" style="margin-top:.5rem"><button data-act="dPaste">Add These Players</button></div>':'')+
     '<div class="entry-actions"><button class="primary" data-act="start" '+(err?'disabled':'')+'>'+(isDE?'Randomize &amp; Create Bracket':'Create Chip Tournament')+'</button><span>'+draft.players.length+' players'+(isDE?'':' · '+total+' chips')+'</span></div>'+
     (err?'<p class="error" style="margin-top:1rem">'+h(err)+'</p>':'')+(flash?'<p class="flash">'+h(flash)+'</p>':'')+'</section>';
-  return '<main class="shell home"><section class="intro"><p class="eyebrow">Pool tournament runner '+badge()+'</p><h1>Pool Tournament Tie Sheet Creator</h1><p>Enter players, choose the tournament style and tables. Chips come from each player’s rating, and every result is saved'+(mode==='shared'?' live for everyone with the link.':' on this device.')+'</p>'+
-    '<div class="toolbar" style="margin-top:1rem"><button data-act="sheet" data-v="ratings">Ratings</button><button data-act="sheet" data-v="settings">Settings</button></div></section>'+out+'</main>';
+  return '<main class="shell home"><section class="intro"><p class="eyebrow">Pool tournament runner '+badge()+'</p><h1>Pool Tournament Tie Sheet Creator</h1><p>Enter players, choose the tournament style and tables. Chips come from each player’s Hub Rating, and every result is saved'+(mode==='shared'?' live for everyone with the link.':' on this device.')+'</p>'+
+    '<div class="toolbar" style="margin-top:1rem"><button data-act="sheet" data-v="ratings">Hub Rating</button><button data-act="sheet" data-v="settings">Settings</button></div></section>'+out+'</main>';
 }
 
 /* ----- double elimination ----- */
