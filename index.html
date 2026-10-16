@@ -171,6 +171,43 @@ textarea.tin{min-height:110px;resize:vertical;line-height:1.4}
 .veil{position:fixed;inset:0;z-index:50;cursor:progress}
 .empty{background:var(--cell);border-radius:var(--r);padding:28px 16px;text-align:center;color:var(--label-2);font-size:15px;margin:0}
 .paste{padding:12px 16px}
+.wrap.wide{max-width:1180px}
+.subtabs{max-width:420px}
+.bk{overflow-x:auto;-webkit-overflow-scrolling:touch;margin-inline:-16px;padding:4px 16px 10px;scrollbar-width:thin}
+.bkin{position:relative;display:flex;gap:34px;width:max-content;min-width:100%}
+.blines{position:absolute;left:0;top:0;pointer-events:none;z-index:0;overflow:visible}
+.blines path{fill:none;stroke:var(--label-3);stroke-width:1.5}
+.bcol{display:flex;flex-direction:column;width:196px;flex:none}
+.bhead{font-size:13px;font-weight:600;color:var(--label-2);background:var(--fill);border-radius:8px;padding:6px 10px;text-align:center;margin-bottom:12px}
+.bstack{flex:1;display:flex;flex-direction:column;justify-content:space-around;gap:16px}
+.bm{position:relative;z-index:1;background:var(--cell);border-radius:12px;overflow:hidden;box-shadow:0 0 0 .5px var(--sep)}
+.bm.live{box-shadow:0 0 0 2px var(--tint)}
+.bm.wait,.bm.bye{opacity:.62}
+.bm[data-act]{cursor:pointer}
+.bmt{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:7px 10px 3px;font-size:12px;color:var(--label-2);font-variant-numeric:tabular-nums}
+.btag{font-size:11px;font-weight:600;border-radius:999px;padding:2px 8px;background:var(--fill);color:var(--label-2)}
+.btag.on{background:var(--tint);color:var(--tint-ink)}
+.bp{position:relative;display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;border:0;background:none;padding:9px 10px;font-size:15px;text-align:left;color:var(--label);min-height:40px}
+.bp+.bp::before{content:"";position:absolute;top:0;left:10px;right:0;height:.5px;background:var(--sep)}
+.bn{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
+.bp.tap .bn{font-weight:600}
+.bp.tap:active{background:var(--cell-2)}
+.bp.win{background:var(--green-soft)}.bp.win .bn{font-weight:700}
+.bp.lose .bn{color:var(--label-2);text-decoration:line-through}
+.bp.tbd .bn{color:var(--label-3)}
+.bsc{flex:none;min-width:26px;height:24px;padding:0 6px;border-radius:6px;background:var(--fill);display:grid;place-items:center;font-weight:600;font-size:14px;font-variant-numeric:tabular-nums;color:var(--label-2)}
+.bp.win .bsc{background:var(--green);color:var(--green-ink)}
+.finals{display:flex;flex-wrap:wrap;gap:20px;align-items:center}
+.finals .bk{flex:0 1 auto;margin-inline:0;padding-inline:0}
+.bm.ghost{visibility:hidden;height:8px}
+.bm.byec{opacity:.7}
+.bm.byec .bp{min-height:36px;padding-block:7px}
+@media (max-width:520px){.bcol{width:168px}.bkin{gap:26px}.bp{font-size:14px}}
+.champ{flex:1 1 200px;max-width:280px;background:var(--cell);border-radius:16px;padding:22px 18px;display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center}
+.champ .medal{width:56px;height:56px;border-radius:50%;background:var(--tint);color:var(--tint-ink);display:grid;place-items:center}
+.champ .medal svg{width:28px;height:28px}
+.champ .clab{font-size:12px;color:var(--label-2);text-transform:uppercase}
+.champ b{font-size:24px;font-family:var(--fd)}
 .nochips .val,.nochips .stepper{display:none}
 .pinfo{flex:1;min-width:0;display:flex;flex-direction:column;gap:5px}
 .meta{display:block;font-size:13px;color:var(--label-2);font-weight:400;letter-spacing:0}
@@ -213,7 +250,7 @@ if(!S||!S.v)S=blankState();
 var mode='connecting'; // connecting | shared | local | readonly
 var art=null, saving=false, flash=null;
 var ui={tab:'tables',pending:null,edit:null,confirm:null,histAll:false,last:null,sheet:null};
-try{var su=JSON.parse(sessionStorage.getItem(SS_UI)||'null');if(su){ui.tab=su.tab||'tables';flash=su.flash||null;if(su.last){ui.last=su.last;ui.last.at=Date.now()}if(su.sheet)ui.sheet=su.sheet;sessionStorage.removeItem(SS_UI)}}catch(e){}
+try{var su=JSON.parse(sessionStorage.getItem(SS_UI)||'null');if(su){ui.tab=su.tab||'tables';ui.btab=su.btab||'W';flash=su.flash||null;if(su.last){ui.last=su.last;ui.last.at=Date.now()}if(su.sheet)ui.sheet=su.sheet;sessionStorage.removeItem(SS_UI)}}catch(e){}
 
 /* theme: auto follows the device; light/dark is remembered on this device */
 var LS_THEME='pct.theme', hostTheme=document.documentElement.getAttribute('data-theme');
@@ -515,7 +552,7 @@ function renderDoc(st){
     '<script type="application/json" id="tstate">'+json+SC+'\n'+
     '<script id="app">'+app+SC+'</body></html>';
 }
-function stashUI(msg){try{sessionStorage.setItem(SS_UI,JSON.stringify({tab:ui.tab,flash:msg||null,last:msg?null:ui.last,sheet:ui.sheet&&ui.sheet.t==='settings'?ui.sheet:null}))}catch(e){}}
+function stashUI(msg){try{sessionStorage.setItem(SS_UI,JSON.stringify({tab:ui.tab,btab:ui.btab,flash:msg||null,last:msg?null:ui.last,sheet:ui.sheet&&ui.sheet.t==='settings'?ui.sheet:null}))}catch(e){}}
 function commit(next,attempt){
   if(saving&&!attempt)return;
   next.updatedAt=Date.now();
@@ -577,6 +614,7 @@ function act(name,el){
       var msg=dm.id==='G1-0'&&ds.w===dm.p2?'One deciding match: the winner takes the tournament':NM[lid]+(Lc>=2?' is out':dm.b==='W'?' drops to the losers bracket':' has 1 loss');
       ui.last={w:NM[ds.w],wid:ds.w,l:NM[lid],table:asg?asg.t:0,msg:msg,score:(st.race||1)>1?(st.race||1)+'–'+(+ds.rl||0):'',at:Date.now()};
       commit(deNormalize(st));break;
+    case 'btab':ui.btab=ds.v;render();break;
     case 'deUndo':st=clone(S);if(!deUndoable(st,ds.m))return;delete st.de.results[ds.m];ui.last=null;commit(deNormalize(st));break;
     case 'dRace':draft.race=Math.max(1,Math.min(9,(draft.race||1)+(+ds.d)));saveDraft();render();break;
     case 'dTier':var tp=draft.players.find(function(x){return x.id===ds.p});if(tp){tp.tier=ds.v;tp.manual=false}saveDraft();render();break;
@@ -668,7 +706,7 @@ function act(name,el){
       st.race=draft.race||1;
       st.phase='running';st.startedAt=Date.now();st.stay=draft.stay!==false;
       st.seed={};st.players.forEach(function(x){st.seed[x.id]=rnd()});
-      if(draft.type==='de'){st.type='de';st.race=draft.race||3;ui.tab='tables';commit(deStart(st,st.players.map(function(x){return x.id})));break}
+      if(draft.type==='de'){st.type='de';st.race=draft.race||3;ui.tab='bracket';ui.btab='W';commit(deStart(st,st.players.map(function(x){return x.id})));break}
       commit(normalize(st));break;
   }
 }
@@ -815,6 +853,77 @@ function renderSetup(){
 
 
 
+
+/* ----- visual bracket (rounds in columns, lines between matches) ----- */
+function bkRoundName(b,r,k){
+  if(b==='W')return r===k?'Final':r===k-1?'Semi-final':'Round '+r;
+  var last=2*(k-1);return r===last?'Final':r===last-1?'Semi-final':'Round '+r;
+}
+function bkCard(m,N,de,can,race){
+  if(m.state==='bye'){
+    if(!m.w)return '<div class="bm ghost" data-mid="'+m.id+'" aria-hidden="true"></div>';
+    return '<div class="bm byec" data-mid="'+m.id+'"><div class="bp"><span class="bn">'+h(N[m.w])+'</span><span class="btag">Bye</span></div></div>';
+  }
+  var asg=de.tables[m.id],code=(m.b==='W'?'WB ':m.b==='L'?'LB ':'')+(m.b==='G'?(m.r===1?'Grand final':'Deciding match'):m.r+'.'+(m.i+1));
+  var cls='bm'+(asg?' live':m.state==='ready'?' ready':m.state==='done'?' done':m.state==='bye'?' bye':' wait');
+  var badge=asg?'<span class="btag on">Table '+asg.t+'</span>':m.state==='ready'?'<span class="btag">Up next</span>':m.state==='bye'?'<span class="btag">Bye</span>':m.state==='done'?'<span class="btag">Done</span>':'';
+  function row(p,isTop){
+    if(p===undefined)return '<div class="bp tbd"><span class="bn">TBD</span><span class="bsc">–</span></div>';
+    if(p===null)return '<div class="bp tbd"><span class="bn">Bye</span><span class="bsc"></span></div>';
+    var win=m.state==='done'&&m.w===p,lose=m.state==='done'&&m.l===p,sc='–';
+    if(m.state==='done')sc=win?race:(m.rl||0);
+    if(m.state==='bye')sc=m.w===p?'✓':'';
+    var inner='<span class="bn">'+h(N[p])+'</span><span class="bsc">'+sc+'</span>';
+    if(m.state==='ready'&&can)return '<button class="bp tap" data-act="deWin" data-m="'+m.id+'" data-w="'+p+'" aria-label="'+h(N[p])+' won '+code+'">'+inner+'</button>';
+    return '<div class="bp'+(win?' win':lose?' lose':'')+'">'+inner+'</div>';
+  }
+  var body=row(m.p1,1)+row(m.p2,0);
+  var tap=m.state==='done'&&can?' data-act="sheet" data-v="deres" data-id="'+m.id+'" role="button" tabindex="0"':'';
+  return '<div class="'+cls+'" data-mid="'+m.id+'"'+tap+'><div class="bmt"><span>'+code+'</span>'+badge+'</div>'+body+'</div>';
+}
+function bkColumns(cols,N,de,can,race){
+  return '<div class="bk"><div class="bkin">'+cols.map(function(c){
+    return '<div class="bcol"><div class="bhead">'+h(c.title)+'</div><div class="bstack">'+c.ms.map(function(m){return bkCard(m,N,de,can,race)}).join('')+'</div></div>';
+  }).join('')+'<svg class="blines" aria-hidden="true"></svg></div></div>';
+}
+function deBracketHTML(D,N,can){
+  var de=S.de,k=de.k,race=S.race||1,part=ui.btab||'W',out='';
+  out+='<div class="subtabs">'+seg('btab',[['W','Winners'],['L','Losers'],['F','Finals']],part)+'</div>';
+  if(part==='W'||part==='L'){
+    var rounds={};D.list.forEach(function(m){if(m.b===part)(rounds[m.r]=rounds[m.r]||[]).push(m)});
+    var cols=Object.keys(rounds).map(Number).sort(function(a,b){return a-b}).map(function(r){return {title:bkRoundName(part,r,k),ms:rounds[r].sort(function(a,b){return a.i-b.i})}});
+    if(!cols.length)out+='<p class="empty">With this few players there is no losers bracket: the first loser goes straight to the grand final.</p>';
+    else out+=bkColumns(cols,N,de,can,race);
+    out+='<p class="gfoot">'+(part==='W'?'Lose here and you drop to the losers bracket.':'Lose here and you’re out.')+(can?' Tap the winner of a live match; tap a finished match to remove its result.':'')+'</p>';
+  }else{
+    var g1=D.by['G1-0'],g2=D.by['G2-0'],cols2=[{title:'Grand final',ms:[g1]}];
+    if(g2.state!=='skip'&&g2.state!=='wait')cols2.push({title:'Deciding match',ms:[g2]});
+    out+='<div class="finals">'+bkColumns(cols2,N,de,can,race)+(D.champ?'':'<div class="champ"><div class="medal">'+IC.trophy+'</div><span class="clab">Champion</span><b>TBD</b></div>')+'</div>';
+    out+='<p class="gfoot">The winners bracket champion needs one win. If the losers bracket champion wins the grand final, one deciding match decides it.</p>';
+  }
+  return out;
+}
+function drawBracketLines(){
+  if(!S.de)return;
+  var defs={};S.de.matches.forEach(function(d){defs[d.id]=d});
+  root.querySelectorAll('.bkin').forEach(function(box){
+    var svg=box.querySelector('.blines');if(!svg)return;
+    var br=box.getBoundingClientRect(),paths='';
+    svg.setAttribute('width',box.scrollWidth);svg.setAttribute('height',box.scrollHeight);
+    box.querySelectorAll('[data-mid]').forEach(function(el){
+      var d=defs[el.getAttribute('data-mid')];if(!d)return;
+      [d.s1,d.s2].forEach(function(src){
+        if(!src||!src.win)return;var from=box.querySelector('[data-mid="'+src.win+'"]');if(!from)return;
+        var a=from.getBoundingClientRect(),b=el.getBoundingClientRect();
+        var x1=a.right-br.left,y1=a.top+a.height/2-br.top,x2=b.left-br.left,y2=b.top+b.height/2-br.top,mx=(x1+x2)/2;
+        paths+='<path d="M'+x1+' '+y1+'H'+mx+'V'+y2+'H'+x2+'"/>';
+      });
+    });
+    svg.innerHTML=paths;
+  });
+}
+window.addEventListener('resize',function(){drawBracketLines()});
+
 /* ----- double elimination screens ----- */
 function deNameMap(){var P={};S.players.forEach(function(p){P[p.id]=p.name});return P}
 function deLastOnTable(t){var best=null;Object.keys(S.de.results).forEach(function(mid){var r=S.de.results[mid];if(r.table===t&&(!best||r.seq>S.de.results[best].seq))best=mid});return best}
@@ -825,8 +934,8 @@ function renderDE(){
   var hero='';
   if(done){var cw=D.champ,lm=null;Object.keys(de.results).forEach(function(mid){if(!lm||de.results[mid].seq>de.results[lm].seq)lm=mid});
     hero='<div class="hero"><div class="medal">'+IC.trophy+'</div><h2>'+h(N[cw]||'Champion')+' Wins</h2><p>'+R[cw].w+' match wins, '+R[cw].l+' loss'+(R[cw].l===1?'':'es')+'</p>'+(can&&lm&&deUndoable(S,lm)?'<button class="btn small" style="margin-top:12px" data-act="deUndo" data-m="'+lm+'">'+IC.undo.replace('<svg','<svg style="width:15px;height:15px;vertical-align:-2px;margin-right:6px"')+'Undo Last Result</button>':'')+'</div>'}
-  var tabsDef=(done?[]:[['tables','Tables']]).concat([['bracket','Bracket'],['standings','Standings'],['ratings','Ratings']]);
-  var tab=ui.tab;if(!tabsDef.some(function(x){return x[0]===tab}))tab=done?'bracket':'tables';
+  var tabsDef=[['bracket','Bracket']].concat(done?[]:[['tables','Tables']]).concat([['standings','Standings'],['ratings','Ratings']]);
+  var tab=ui.tab;if(!tabsDef.some(function(x){return x[0]===tab}))tab='bracket';
   var body='';
   if(tab==='tables'){
     for(var t=1;t<=S.tables;t++){
@@ -842,19 +951,7 @@ function renderDE(){
     var waiting=D.list.filter(function(m){return m.state==='wait'&&!(m.id==='G2-0')}).length;
     if(waiting)body+='<p class="gfoot">'+waiting+' more match'+(waiting===1?'':'es')+' will be set as results come in.</p>';
   }else if(tab==='bracket'){
-    var groups={};D.list.forEach(function(m){if(m.state==='skip'||(m.id==='G2-0'&&m.state==='wait'))return;var key=m.stage+'|'+m.label;(groups[key]=groups[key]||{stage:m.stage,label:m.b==='W'||m.b==='L'?m.label:'Grand final',ms:[]}).ms.push(m)});
-    Object.keys(groups).map(function(k){return groups[k]}).sort(function(a,b){return a.stage-b.stage}).forEach(function(g){
-      var rows=g.ms.map(function(m){
-        if(m.state==='bye'){return m.w?'<div class="cell dim"><span class="grow">'+h(N[m.w])+' moves on</span><span class="sec">Bye</span></div>':''}
-        if(m.state==='done'){var sc=(S.race||1)>1?' '+(S.race||1)+'–'+(m.rl||0):'';var inner='<span class="grow"><b style="font-weight:600">'+h(N[m.w])+'</b> beat '+h(N[m.l])+sc+'</span>'+(m.id==='G2-0'?'<span class="sec">Deciding</span>':'');
-          return can?'<button class="cell" data-act="sheet" data-v="deres" data-id="'+m.id+'">'+inner+'</button>':'<div class="cell">'+inner+'</div>'}
-        var a=m.p1?h(N[m.p1]):'<span style="color:var(--label-3)">TBD</span>',b=m.p2?h(N[m.p2]):'<span style="color:var(--label-3)">TBD</span>';
-        var where=de.tables[m.id]?'Table '+de.tables[m.id].t:m.state==='ready'?'Up next':'';
-        return '<div class="cell'+(m.state==='wait'?' dim':'')+'"><span class="grow">'+a+' vs '+b+'</span>'+(where?'<span class="sec">'+where+'</span>':'')+'</div>';
-      }).join('');
-      if(rows)body+=group(h(g.label),'<div class="list">'+rows+'</div>');
-    });
-    body+='<p class="gfoot">'+(can?'Tap a result to remove it, if no later match depends on it. ':'')+'Lose twice and you’re out. If the losers bracket winner wins the grand final, one deciding match is played.</p>';
+    body=deBracketHTML(D,N,can);
   }else if(tab==='standings'){
     var inP=still.slice().sort(function(a,b){return R[a.id].l-R[b.id].l||R[b.id].w-R[a.id].w||a.name.localeCompare(b.name)});
     var out=S.players.filter(function(p){return still.indexOf(p)<0}).sort(function(a,b){return R[b.id].last-R[a.id].last});
@@ -964,7 +1061,8 @@ var lastTimer=null;
 function render(){
   var html=S.phase==='setup'?renderSetup():renderRunning();
   var d=S.phase==='setup'?null:derive(S);
-  root.innerHTML='<div class="wrap">'+html+'</div>'+(ui.sheet?sheetHTML(d||derive(S)):'')+(saving?'<div class="veil" aria-hidden="true"></div>':'');
+  root.innerHTML='<div class="wrap'+(S.type==='de'&&S.phase!=='setup'&&(ui.tab==='bracket'||!ui.tab||ui.tab==='tables'&&S.phase==='done')?' wide':'')+'">'+html+'</div>'+(ui.sheet?sheetHTML(d||derive(S)):'')+(saving?'<div class="veil" aria-hidden="true"></div>':'');
+  drawBracketLines();
   if(ui.last&&!lastTimer){var left=3000-(Date.now()-ui.last.at);
     if(left>0)lastTimer=setTimeout(function(){lastTimer=null;ui.last=null;if(!saving&&!ui.sheet)render();else{var r=root.querySelector('.toast');if(r)r.remove()}},left+50);else ui.last=null}
 }
