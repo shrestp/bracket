@@ -94,6 +94,9 @@ textarea{min-height:160px;resize:vertical;padding:1rem;line-height:1.5}
 :root[data-theme="light"] .add{background:#dcfce7;color:#166534}
 .plist .addrow select{width:auto;margin:0;border:1px solid var(--field);border-radius:6px;background:var(--panel);color:var(--text);padding:.35rem .4rem;font-size:.85rem}
 .nochips .chip-adjuster{display:none}
+.adjmark{color:#ff4d5e;font-weight:900;margin-left:.2rem;font-size:1.1em;line-height:1;text-shadow:none}
+.wide-sheet{width:min(720px,calc(100% - 24px))}
+.rsheet .panel-note{margin-top:.75rem}
 select{-webkit-appearance:none;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%239aa3b6' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")!important;background-repeat:no-repeat!important;background-position:right .75rem center!important;background-size:12px 8px!important;padding-right:2.2rem!important;cursor:pointer}
 .pmeta select{background-position:right .4rem center!important;background-size:9px 6px!important;padding-right:1.35rem!important}
 
@@ -843,7 +846,7 @@ function toolbar(){
   if(location.hash==='#view'&&(mode==='shared'||mode==='local'))return '<button data-act="viewOff">Back to Director View</button>';
   var can=canAct(),u=lastUndo(),out='';
   if(can)out+='<button data-act="'+(u?u.act:'undo')+'" data-m="'+(u?u.m:'')+'" '+(u?'':'disabled')+'>Undo Last Result</button>';
-  out+='<button data-act="sheet" data-v="settings">Settings</button>';
+  out+='<button data-act="sheet" data-v="ratings">Ratings</button><button data-act="sheet" data-v="settings">Settings</button>';
   if(can)out+='<button class="danger" data-act="sheet" data-v="reset">'+(S.phase==='done'?'New Tournament':'Reset Tournament')+'</button>';
   return out;
 }
@@ -877,6 +880,7 @@ function actionSheet(title,msg,rows){
 function sheetHTML(d){
   var s=ui.sheet;if(!s)return '';
   if(s.t==='settings')return settingsSheet();
+  if(s.t==='ratings')return '<div class="scrim" data-act="closeSheet"></div><div class="sheet wide-sheet" role="dialog" aria-modal="true" aria-label="Ratings"><div class="sheet-head"><h2>Ratings</h2><button data-act="closeSheet">Done</button></div>'+ratingsHTML(true)+'</div>';
   if(!canAct())return '';
   if(s.t==='reset')return actionSheet(S.phase==='done'?'Start a new tournament?':'Reset this tournament?','Every result is cleared. Your player list is kept so you can edit it. Ratings keep everything already played.',[{label:S.phase==='done'?'New Tournament':'Reset Tournament',cls:'danger',attrs:'data-act="reset"'}]);
   if(s.t==='cancel'){var m=S.matches.find(function(x){return x.id===s.id});if(!m)return '';
@@ -905,14 +909,14 @@ function sheetHTML(d){
 function paceText(v){return v===1?'Everyone plays once before anyone plays again. Fairest, but tables can sit idle.':v===99?'Tables always refill with whoever is free. Match counts can drift apart.':'Tables refill as soon as they’re free, and no one gets more than one match ahead.'}
 
 function autoChips(x){var kn=known(x.name);return kn?kn.chips:chipsFor((TIERS[x.tier]||TIERS.a).start)}
-function ratingsHTML(){
+function ratingsHTML(inSheet){
   var R=ratings(),list=Object.keys(R).map(function(k){return R[k]}).sort(function(a,b){return b.rating-a.rating||a.name.localeCompare(b.name)});
   var can=canAct(),line='<p class="panel-note" id="sync-line">'+syncText()+'</p>';
   var body=!list.length?'<p class="muted" style="margin:0">No ratings yet. Every rack you record counts.</p>':
     '<ol class="chip-standings-list rlist">'+list.map(function(r,i){
       var nm=h(r.name)+(r.prov?'<span class="newtag">New</span>':'')+'<small>'+r.games+' rack'+(r.games===1?'':'s')+' · '+r.w+'–'+r.l+' · '+r.level+'</small>';
       return '<li><span class="qrank">'+(i+1)+'</span>'+(can?'<button class="player-name" data-act="sheet" data-v="rated" data-id="'+h(r.key)+'">'+nm+'</button>':'<span class="player-name">'+nm+'</span>')+'<span class="rnum">'+r.rating+'</span><strong title="Chips">'+r.chips+'</strong></li>'}).join('')+'</ol>';
-  return '<aside class="side-panel"><div class="panel-heading"><h2>Ratings</h2><span class="muted" style="font-weight:800;font-size:.85rem">Rating · Chips</span></div>'+body+
+  return '<aside class="'+(inSheet?'rsheet':'side-panel')+'"><div class="panel-heading">'+(inSheet?'<span class="muted" style="font-weight:800;font-size:.85rem">'+list.length+' players</span>':'<h2>Ratings</h2>')+'<span class="muted" style="font-weight:800;font-size:.85rem">Rating · Chips</span></div>'+body+
     (list.length?'<p class="panel-note">100 points apart means the higher player is expected to win 2 racks for every 1. 575 and up get 4 chips, 500–574 get 5, 425–499 get 6, under 425 get 7. “New” means fewer than '+PROV+' racks.</p>':'')+line+'</aside>';
 }
 
@@ -947,7 +951,7 @@ function renderSetup(){
     '<div class="entry-actions"><button class="primary" data-act="start" '+(err?'disabled':'')+'>'+(isDE?'Randomize &amp; Create Bracket':'Create Chip Tournament')+'</button><span>'+draft.players.length+' players'+(isDE?'':' · '+total+' chips')+'</span></div>'+
     (err?'<p class="error" style="margin-top:1rem">'+h(err)+'</p>':'')+(flash?'<p class="flash">'+h(flash)+'</p>':'')+'</section>';
   return '<main class="shell home"><section class="intro"><p class="eyebrow">Pool tournament runner '+badge()+'</p><h1>Pool Tournament Tie Sheet Creator</h1><p>Enter players, choose the tournament style and tables. Chips come from each player’s rating, and every result is saved'+(mode==='shared'?' live for everyone with the link.':' on this device.')+'</p>'+
-    '<div class="toolbar" style="margin-top:1rem"><button data-act="sheet" data-v="settings">Settings</button></div>'+ratingsHTML()+'</section>'+out+'</main>';
+    '<div class="toolbar" style="margin-top:1rem"><button data-act="sheet" data-v="ratings">Ratings</button><button data-act="sheet" data-v="settings">Settings</button></div></section>'+out+'</main>';
 }
 
 /* ----- double elimination ----- */
@@ -1009,7 +1013,7 @@ function renderDE(){
       var where=null;Object.keys(de.tables).forEach(function(mid){var m=D.by[mid];if(m&&(m.p1===p.id||m.p2===p.id))where='Table '+de.tables[mid].t});
       return '<li><span class="qrank">'+(i+1)+'</span><span class="player-name">'+h(p.name)+'<small>'+(done?'Winner':(R[p.id].l===0?'No losses':'1 loss')+(where?' · '+where:''))+'</small></span><strong>'+R[p.id].w+'–'+R[p.id].l+'</strong></li>'}).join('')+'</ol></aside>';
   var elim='<aside class="side-panel"><h2>Eliminated Players</h2>'+(outP.length?'<ol class="eliminated-list">'+outP.map(function(p){return '<li>'+h(p.name)+' <span class="muted">'+R[p.id].w+'–'+R[p.id].l+'</span></li>'}).join('')+'</ol>':'<p class="muted" style="margin:0">No one has been eliminated yet.</p>')+'</aside>';
-  var side='<div class="side-wrap'+(mt==='players'?' mobile-active':'')+'" data-mobile-view="players">'+stand+elim+ratingsHTML()+'</div>';
+  var side='<div class="side-wrap'+(mt==='players'?' mobile-active':'')+'" data-mobile-view="players">'+stand+elim+'</div>';
   var toast='',age=ui.last?Date.now()-ui.last.at:1e9;
   if(age<3000&&ui.last.msg){var L=ui.last;toast='<div class="toast" role="status" style="animation-delay:-'+age+'ms"><span class="dot">✓</span><div><b>'+h(L.w)+' won'+(L.score?' '+L.score:'')+'</b><br><span>'+h(L.msg)+'</span></div></div>'}
   return '<main class="shell bracket-screen">'+header('Double elimination',title,sub,toolbar())+tabs+'<div class="layout"><div class="brackets'+(hasL?'':'')+'">'+wb+fin+lb+'</div></div>'+side+'</main>'+toast;
@@ -1042,6 +1046,7 @@ function undoable(st,t){
   return later?null:last;
 }
 function lastOnTable(t){var last=null;S.matches.forEach(function(m){if(m.status==='done'&&m.table===t&&(!last||m.endedSeq>last.endedSeq))last=m});return last}
+function adjMark(id){var n=0;(S.adj||[]).forEach(function(a){if(a.player===id)n++});return n?'<span class="adjmark" title="Chips changed by hand after the start" aria-label="chips changed by hand">*</span>':''}
 function chipTables(d){
   var live={};S.matches.forEach(function(m){if(m.status==='live')live[m.table]=m});
   var blocked={};(S.blocked||[]).forEach(function(b){blocked[b.table]=b});
@@ -1052,7 +1057,7 @@ function chipTables(d){
     var newAge=m?now-m.startedAt:1e9,enter=enterDelay!=null&&!hi&&newAge<1200;
     var c='player-row'+(cls?' '+cls:'')+(hi?' flash':'')+(enter?' enter':'');
     var st=hi?' style="animation-delay:-'+age+'ms"':enter?' style="animation-delay:'+(enterDelay-newAge)+'ms"':'';
-    var inner='<span>'+h(p.name)+(hi?'<span class="tag"'+st+'>Winner</span>':'')+'</span><small>'+p.cur+'</small>';
+    var inner='<span>'+h(p.name)+adjMark(p.id)+(hi?'<span class="tag"'+st+'>Winner</span>':'')+'</span><small>'+p.cur+'</small>';
     return m&&can?'<button class="'+c+'"'+st+' data-act="pick" data-m="'+m.id+'" data-w="'+p.id+'" aria-label="'+h(p.name)+' won">'+inner+'</button>':'<div class="'+c+'"'+st+'>'+inner+'</div>';
   }
   for(var t=1;t<=S.tables;t++){
@@ -1084,7 +1089,7 @@ function chipTables(d){
 }
 function queueHTML(d){
   var q=queue(d);
-  var body=q.length?'<ol class="next-up-list">'+q.map(function(p,i){return '<li class="'+(i===0?'next':'')+'"><span class="qrank">'+(i+1)+'</span><span class="player-name">'+h(p.name)+'<small>'+p.played+' played'+(i===0?' · next':'')+'</small></span><strong>'+p.cur+'</strong></li>'}).join('')+'</ol>':'<p class="muted" style="margin:0">No one is waiting.</p>';
+  var body=q.length?'<ol class="next-up-list">'+q.map(function(p,i){return '<li class="'+(i===0?'next':'')+'"><span class="qrank">'+(i+1)+'</span><span class="player-name">'+h(p.name)+adjMark(p.id)+'<small>'+p.played+' played'+(i===0?' · next':'')+'</small></span><strong>'+p.cur+'</strong></li>'}).join('')+'</ol>':'<p class="muted" style="margin:0">No one is waiting.</p>';
   var away=d.alive.filter(function(p){return p.away}).map(function(p){return h(p.name)});
   return '<aside class="side-panel chip-next-up"><div class="panel-heading"><h2>Next Player Up</h2></div>'+body+(away.length?'<p class="panel-note">Away: '+away.join(', ')+'</p>':'')+'<p class="panel-note">Fewest matches first, then whoever has waited longest. A player never faces the person they just played.</p></aside>';
 }
@@ -1094,12 +1099,12 @@ function playersHTML(d,done){
   var canE=canAct()&&!done;
   function li(p,i){
     var status=done&&p.alive?'Winner':p.withdrawn?'Withdrew':!p.alive?'Out':p.busy?'Table '+p.table:p.held?'Table '+p.held:p.away?'Away':'Waiting';
-    var nm=h(p.name)+'<small>'+status+' · '+p.wins+'–'+p.losses+'</small>';
+    var nm=h(p.name)+adjMark(p.id)+'<small>'+status+' · '+p.wins+'–'+p.losses+'</small>';
     var name=canE?'<button class="player-name" data-act="sheet" data-v="player" data-id="'+p.id+'">'+nm+'</button>':'<span class="player-name">'+nm+'</span>';
     var chips=canE?'<span class="chip-adjuster" aria-label="'+h(p.name)+' chip controls"><button data-act="adj" data-p="'+p.id+'" data-d="-1" '+(p.cur<=0?'disabled':'')+' aria-label="Remove a chip">-</button><strong>'+p.cur+'</strong><button data-act="adj" data-p="'+p.id+'" data-d="1" aria-label="Add a chip">+</button></span>':'<strong>'+p.cur+'</strong>';
     return '<li class="'+(p.alive?'':'eliminated')+'"><span class="qrank">'+(p.alive?i+1:'')+'</span>'+name+chips+'</li>';
   }
-  return '<aside class="side-panel chip-standings"><h2>Players</h2><ol class="chip-standings-list">'+alive.map(li).join('')+gone.map(function(p){return li(p,0)}).join('')+'</ol>'+(canE?'<p class="panel-note">Tap a name to mark someone away or withdraw them.</p>':'')+'</aside>';
+  return '<aside class="side-panel chip-standings"><h2>Players</h2><ol class="chip-standings-list">'+alive.map(li).join('')+gone.map(function(p){return li(p,0)}).join('')+'</ol>'+'<p class="panel-note">'+(canE?'Tap a name to mark someone away or withdraw them. ':'')+((S.adj||[]).length?'<span class="adjmark">*</span> chips were added or removed by hand after the start.':'')+'</p>'+'</aside>';
 }
 function historyHTML(d){
   var items=S.matches.filter(function(m){return m.status!=='live'}).map(function(m){return {k:m.endedSeq!=null?m.endedSeq+.5:(m.n/1000),m:m}});
@@ -1128,7 +1133,7 @@ function renderRunning(){
   if(done&&w)out+='<section class="chip-champion-card" aria-live="polite">'+TROPHY+'<span>Champion</span><strong>'+h(w.name)+'</strong><p>'+w.wins+' wins from '+w.played+' matches · '+w.cur+' chip'+(w.cur===1?'':'s')+' left</p></section>';
   out+='<div class="chip-layout"><div class="chip-main">'+
     (done?'':'<section class="chip-round o1"><div class="bracket-heading"><h2>Tables</h2><span>'+liveN+' playing</span></div><div class="chip-match-list">'+chipTables(d)+'</div></section>')+
-    '<div class="o4">'+historyHTML(d)+'</div><div class="o5">'+ratingsHTML()+'</div></div>'+
+    '<div class="o4">'+historyHTML(d)+'</div></div>'+
     '<div class="chip-sidebar">'+(done?'':'<div class="o2">'+queueHTML(d)+'</div>')+'<div class="o3">'+playersHTML(d,done)+'</div></div></div></main>';
   var toast='',age=ui.last?Date.now()-ui.last.at:1e9;
   if(age<3000&&ui.last.w){var L=ui.last;toast='<div class="toast" role="status" style="animation-delay:-'+age+'ms"><span class="dot">✓</span><div><b>'+h(L.w)+' won'+(stays(S)&&!done?' and stays on table '+L.table:'')+'</b><br><span>'+h(L.l)+(L.left>0?' has '+L.left+' chip'+(L.left===1?'':'s')+' left':' is out')+'</span></div></div>'}
