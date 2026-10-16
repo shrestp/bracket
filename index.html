@@ -171,6 +171,19 @@ textarea.tin{min-height:110px;resize:vertical;line-height:1.4}
 .veil{position:fixed;inset:0;z-index:50;cursor:progress}
 .empty{background:var(--cell);border-radius:var(--r);padding:28px 16px;text-align:center;color:var(--label-2);font-size:15px;margin:0}
 .paste{padding:12px 16px}
+.pinfo{flex:1;min-width:0;display:flex;flex-direction:column;gap:5px}
+.meta{display:block;font-size:13px;color:var(--label-2);font-weight:400;letter-spacing:0}
+.meta .tlink{font-size:13px}
+.tiers{display:flex;gap:4px;flex-wrap:wrap}
+.tchip{border:0;background:var(--fill);color:var(--label);border-radius:999px;padding:3px 10px;font-size:13px;font-weight:500;min-height:26px}
+.tchip.on{background:var(--tint);color:var(--tint-ink);font-weight:600}
+.lvlin{border:0;background:var(--fill);border-radius:6px;padding:2px 6px;font-size:13px;color:var(--tint-text);font-weight:600;-webkit-appearance:none;appearance:none}
+.val.man{color:var(--tint-text);font-weight:600}
+.lvl{width:auto;padding:5px 8px;font-size:15px;appearance:none;-webkit-appearance:none;color:var(--label)}
+.newtag{font-size:11px;font-weight:600;color:var(--tint-text);background:var(--tint-soft);border-radius:999px;padding:1px 7px;vertical-align:2px;margin-left:4px}
+.rnum{font-weight:700;font-variant-numeric:tabular-nums;min-width:40px;text-align:right}
+.cpill{min-width:28px;height:28px;border-radius:999px;background:var(--fill);color:var(--tint-text);font-weight:700;display:grid;place-items:center;font-size:15px;font-variant-numeric:tabular-nums}
+.seg.big button{padding-inline:4px}
 @media (min-width:700px){h1{font-size:40px}.wrap{padding-top:36px}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}.pcell.sel{background:var(--green-soft)}}
 </style>
@@ -239,6 +252,98 @@ function derive(st){
   var minPlayed=active.length?Math.min.apply(null,active.map(function(p){return p.played})):0;
   return {S:st,P:P,list:list,alive:alive,active:active,minPlayed:minPlayed};
 }
+
+
+/* ---------- ratings ----------
+   Fargo-style scale: 100 points = 2-to-1 odds of winning a rack.
+   Ratings are recomputed from every rack ever recorded (whole-history fit), so every device
+   that has the same results shows the same numbers. A new player starts at their level and the
+   start counts for about 8 racks; after that their results decide. */
+var LS_DB='pct.db.v1', LS_GH='pct.gh.v1';
+var TIERS={b:{label:'Beginner',start:400},a:{label:'Average',start:500},s:{label:'Strong',start:600}};
+var BANDS=[[575,4],[500,5],[425,6],[-1e9,7]];
+var PROV=20;
+function nkey(n){return String(n||'').trim().toLowerCase().replace(/\s+/g,' ')}
+function chipsFor(r){for(var i=0;i<BANDS.length;i++)if(r>=BANDS[i][0])return BANDS[i][1];return 7}
+function levelFor(r){var c=chipsFor(r);return c<=4?'Strong':c>=7?'Beginner':'Average'}
+function tierFromChips(c){return c<=4?'s':c>=7?'b':'a'}
+var DB=(function(){var x=lsGet(LS_DB);return x&&x.players?x:{v:1,players:{},tournaments:{}}})();
+var gh=lsGet(LS_GH)||{repo:'shrestp/bracket',token:''};
+var sync={state:'idle',msg:'',sha:null,timer:null,at:0};
+var RC=null,RCkey='';
+function dbGames(db){
+  var g=[],ts=Object.keys(db.tournaments).sort(function(a,b){return (db.tournaments[a].date||0)-(db.tournaments[b].date||0)});
+  ts.forEach(function(t){(db.tournaments[t].matches||[]).forEach(function(m){var i;for(i=0;i<(m.rw||1);i++)g.push([m.w,m.l]);for(i=0;i<(m.rl||0);i++)g.push([m.l,m.w])})});
+  return g;
+}
+function ratings(){
+  var key=JSON.stringify(DB);if(RC&&key===RCkey)return RC;
+  var keys=Object.keys(DB.players),R={},st={},by={},out={};
+  keys.forEach(function(k){st[k]=(TIERS[DB.players[k].tier]||TIERS.a).start;R[k]=st[k];by[k]=[];out[k]={w:0,l:0}});
+  dbGames(DB).forEach(function(x){if(!by[x[0]]||!by[x[1]])return;by[x[0]].push([x[1],1]);by[x[1]].push([x[0],0]);out[x[0]].w++;out[x[1]].l++});
+  var c=Math.LN2/100,prior=1/(100*100);
+  for(var it=0;it<80;it++){keys.forEach(function(k){
+    var g=-(R[k]-st[k])*prior,H=-prior;
+    by[k].forEach(function(o){var q=1/(1+Math.pow(2,-(R[k]-R[o[0]])/100));g+=c*(o[1]-q);H-=c*c*q*(1-q)});
+    R[k]-=g/H;
+  })}
+  keys.forEach(function(k){var r=Math.round(R[k]),n=out[k].w+out[k].l;out[k]={key:k,name:DB.players[k].name,tier:DB.players[k].tier,rating:r,games:n,w:out[k].w,l:out[k].l,prov:n<PROV,chips:chipsFor(r),level:levelFor(r)}});
+  RC=out;RCkey=key;return out;
+}
+function known(name){var k=nkey(name);return k&&DB.players[k]?ratings()[k]:null}
+function recordTournament(st){
+  if(!st||st.phase==='setup'||!st.players.length)return;
+  if(!st.tid)st.tid='t'+(st.startedAt||Date.now());
+  var P={};st.players.forEach(function(x){
+    var k=x.key||nkey(x.name);P[x.id]=k;
+    if(!DB.players[k])DB.players[k]={name:x.name.trim(),tier:x.tier||tierFromChips(x.chips),added:Date.now()};
+  });
+  DB.tournaments[st.tid]={date:st.startedAt||Date.now(),title:st.title,updatedAt:Date.now(),
+    matches:st.matches.filter(function(m){return m.status==='done'}).map(function(m){var l=m.winner===m.a?m.b:m.a;return {w:P[m.winner],l:P[l],rw:m.rw||1,rl:m.rl||0}})};
+  saveDB(true);
+}
+function saveDB(push){lsSet(LS_DB,DB);RC=null;if(push&&canSync())schedulePush()}
+function canSync(){return mode==='local'&&!!gh.token&&!!gh.repo}
+function ghURL(){return 'https://api.github.com/repos/'+gh.repo+'/contents/ratings.json'}
+function b64e(x){return btoa(unescape(encodeURIComponent(x)))}
+function b64d(x){return decodeURIComponent(escape(atob(String(x).replace(/\s/g,''))))}
+function ghHeaders(){var hd={'Accept':'application/vnd.github+json'};if(gh.token)hd.Authorization='Bearer '+gh.token;return hd}
+function mergeDB(remote){
+  if(!remote||!remote.players)return;
+  Object.keys(remote.players).forEach(function(k){var a=DB.players[k],b=remote.players[k];if(!a||(b.tierAt||0)>(a.tierAt||0))DB.players[k]=b});
+  Object.keys(remote.tournaments||{}).forEach(function(t){var a=DB.tournaments[t],b=remote.tournaments[t];if(!a||(b.updatedAt||0)>(a.updatedAt||0))DB.tournaments[t]=b});
+  saveDB(false);
+}
+function ghPull(){
+  if(!gh.repo||typeof fetch!=='function')return Promise.resolve();
+  return fetch(ghURL()+'?ref=main&t='+Date.now(),{headers:ghHeaders(),cache:'no-store'}).then(function(r){
+    if(r.status===404){sync.sha=null;return null}
+    if(!r.ok)throw new Error(r.status===401?'The access token was refused. Paste a new one in Settings.':'GitHub answered '+r.status+'.');
+    return r.json();
+  }).then(function(j){if(j){sync.sha=j.sha;mergeDB(JSON.parse(b64d(j.content)))}});
+}
+function schedulePush(){clearTimeout(sync.timer);sync.state='pending';sync.timer=setTimeout(ghPush,8000)}
+function ghPush(retry){
+  if(!canSync())return;
+  sync.state='saving';paintSync();
+  ghPull().then(function(){
+    var body={message:'Update ratings',content:b64e(JSON.stringify(DB)),branch:'main'};if(sync.sha)body.sha=sync.sha;
+    return fetch(ghURL(),{method:'PUT',headers:Object.assign({'Content-Type':'application/json'},ghHeaders()),body:JSON.stringify(body)});
+  }).then(function(r){
+    if((r.status===409||r.status===422)&&!retry)return ghPush(true);
+    if(!r.ok)throw new Error(r.status===401||r.status===403?'GitHub refused the save. Check that the token can write to '+gh.repo+'.':'GitHub answered '+r.status+'.');
+    return r.json().then(function(j){sync.sha=j.content&&j.content.sha;sync.state='saved';sync.at=Date.now();sync.msg='';paintSync()});
+  }).catch(function(e){sync.state='error';sync.msg=e&&e.message||'Could not reach GitHub.';paintSync()});
+}
+function syncText(){
+  if(mode==='shared'||mode==='readonly')return 'Ratings are saved with this page.';
+  if(!gh.token)return 'Ratings are saved on this phone only. Connect GitHub in Settings to keep them in the repo.';
+  if(sync.state==='saving'||sync.state==='pending')return 'Saving ratings to GitHub…';
+  if(sync.state==='error')return sync.msg;
+  if(sync.state==='saved')return 'Ratings saved to GitHub '+mins(sync.at).replace('just started','just now')+(sync.at&&Date.now()-sync.at>=60000?' ago':'')+'.';
+  return 'Ratings sync with GitHub ('+h(gh.repo)+').';
+}
+function paintSync(){var el=document.getElementById('sync-line');if(el)el.textContent=syncText()}
 
 /* ---------- the draw ---------- */
 function stays(st){return st.stay!==false}
@@ -329,6 +434,8 @@ function stashUI(msg){try{sessionStorage.setItem(SS_UI,JSON.stringify({tab:ui.ta
 function commit(next,attempt){
   if(saving&&!attempt)return;
   next.updatedAt=Date.now();
+  recordTournament(next);
+  if(mode==='shared')next.db=DB;
   ui.pending=null;ui.confirm=null;if(ui.sheet&&ui.sheet.t!=='settings')ui.sheet=null;
   if(mode==='local'){S=next;lsSet(LS_STATE,S);flash=null;render();return}
   if(mode!=='shared')return;
@@ -364,14 +471,28 @@ function act(name,el){
     case 'dStay':draft.stay=draft.stay===false;saveDraft();render();break;
     case 'unpick':ui.pending=null;ui.confirm=null;render();break;
     case 'win':
+      if((S.race||1)>1&&ds.rl==null){ui.sheet={t:'race',id:ds.m,w:ds.w};render();return}
       st=clone(S);var m=st.matches.find(function(x){return x.id===ds.m});
       if(!m||m.status!=='live'){flash='That match was already scored.';render();return}
-      m.status='done';m.winner=ds.w;st.endSeq=(st.endSeq||0)+1;m.endedSeq=st.endSeq;m.endedAt=Date.now();
+      m.status='done';m.winner=ds.w;m.rw=st.race||1;m.rl=Math.max(0,Math.min((st.race||1)-1,+ds.rl||0));st.endSeq=(st.endSeq||0)+1;m.endedSeq=st.endSeq;m.endedAt=Date.now();
       var dd=derive(st),Wp=dd.P[ds.w],Lp=dd.P[ds.w===m.a?m.b:m.a];
       if(stays(st)){st.hold=st.hold||{};st.hold[m.table]=ds.w}
       ui.last={w:Wp.name,wid:ds.w,l:Lp.name,table:m.table,left:Lp.cur,at:Date.now()};
       commit(normalize(st));break;
     case 'sheet':ui.sheet={t:ds.v,id:ds.id||null};render();break;
+    case 'race':st=clone(S);st.race=Math.max(1,Math.min(9,(st.race||1)+(+ds.d)));commit(normalize(st));break;
+    case 'dRace':draft.race=Math.max(1,Math.min(9,(draft.race||1)+(+ds.d)));saveDraft();render();break;
+    case 'dTier':var tp=draft.players.find(function(x){return x.id===ds.p});if(tp){tp.tier=ds.v;tp.manual=false}saveDraft();render();break;
+    case 'dAuto':var ap=draft.players.find(function(x){return x.id===ds.p});if(ap)ap.manual=false;saveDraft();render();break;
+    case 'stab':ui.stab=ds.v;render();break;
+    case 'setTier':var k0=ds.k;if(DB.players[k0]){DB.players[k0].tier=ds.v;DB.players[k0].tierAt=Date.now();saveDB(true)}ui.sheet=null;render();break;
+    case 'ghSave':
+      var rv=(document.getElementById('gh-repo')||{}).value,tv=(document.getElementById('gh-token')||{}).value;
+      gh.repo=String(rv||'').trim().replace(/^https?:\/\/github\.com\//,'').replace(/\/$/,'');if(tv&&tv.trim())gh.token=tv.trim();
+      lsSet(LS_GH,gh);sync.state='saving';render();
+      ghPull().then(function(){sync.state='idle';ghPush()}).catch(function(e){sync.state='error';sync.msg=e.message;render()});break;
+    case 'ghSync':if(canSync())ghPush();else ghPull().then(render,function(e){sync.state='error';sync.msg=e.message;render()});break;
+    case 'ghOff':gh.token='';lsSet(LS_GH,gh);sync.state='idle';render();break;
     case 'closeSheet':ui.sheet=null;render();break;
     case 'leadSet':st=clone(S);st.leadLimit=+ds.v;commit(normalize(st));break;
     case 'dPace':draft.leadLimit=+ds.v;saveDraft();render();break;
@@ -417,18 +538,20 @@ function act(name,el){
     case 'viewOff':history.replaceState(null,'',location.pathname+location.search);render();break;
     case 'claim':mode='shared';flash=null;render();break;
     case 'reset':
-      st=blankState();st.title=S.title;st.tables=S.tables;st.leadLimit=S.leadLimit;st.stay=stays(S);
-      draft={title:S.title,tables:S.tables,leadLimit:S.leadLimit,example:false,players:S.players.map(function(p){return {id:uid(),name:p.name,chips:p.chips}})};saveDraft();
+      st=blankState();st.title=S.title;st.tables=S.tables;st.leadLimit=S.leadLimit;st.stay=stays(S);st.race=S.race||1;
+      draft={title:S.title,tables:S.tables,leadLimit:S.leadLimit,race:S.race||1,stay:stays(S),example:false,players:S.players.map(function(p){return {id:uid(),name:p.name,tier:p.tier,chips:p.chips,manual:!!p.manual}})};saveDraft();
       commit(st);break;
     case 'histAll':ui.histAll=!ui.histAll;render();break;
     /* setup */
     case 'dTables':draft.tables=Math.min(12,Math.max(1,draft.tables+(+ds.d)));saveDraft();render();break;
-    case 'dChips':var dp=draft.players.find(function(x){return x.id===ds.p});dp.chips=Math.min(9,Math.max(1,dp.chips+(+ds.d)));saveDraft();render();break;
+    case 'dChips':var dp=draft.players.find(function(x){return x.id===ds.p});dp.chips=Math.min(9,Math.max(1,autoChips(dp)+(dp.manual?dp.chips-autoChips(dp):0)+(+ds.d)));dp.manual=dp.chips!==autoChips(dp);saveDraft();render();break;
     case 'dRemove':draft.players=draft.players.filter(function(x){return x.id!==ds.p});saveDraft();render();break;
     case 'dAdd':
       var inp=document.getElementById('new-name'),cin=document.getElementById('new-chips');
       var nm=(inp.value||'').trim();if(!nm){inp.focus();return}
-      draft.players.push({id:uid(),name:nm,chips:Math.min(9,Math.max(1,parseInt(cin.value,10)||3))});saveDraft();render();
+      if(draft.players.some(function(x){return nkey(x.name)===nkey(nm)})){flash=nm+' is already on the list.';render();return}
+      var np={id:uid(),name:(known(nm)?known(nm).name:nm),tier:(document.getElementById('new-tier')||{}).value||'a'};np.chips=autoChips(np);
+      draft.players.push(np);flash=null;saveDraft();render();
       var ni=document.getElementById('new-name');if(ni)ni.focus();break;
     case 'dClear':draft.players=[];draft.example=false;saveDraft();render();break;
     case 'dPaste':
@@ -436,14 +559,15 @@ function act(name,el){
       (ta.value||'').split(/\n+/).forEach(function(line){
         var mm=line.trim().match(/^(.*?)[\s,;\t]+(\d+)\s*$/),name,ch=3;
         if(mm){name=mm[1].trim();ch=parseInt(mm[2],10)}else name=line.trim();
-        if(name){draft.players.push({id:uid(),name:name,chips:Math.min(9,Math.max(1,ch))});added++}
+        if(name&&!draft.players.some(function(x){return nkey(x.name)===nkey(name)})){var pp={id:uid(),name:known(name)?known(name).name:name,tier:tierFromChips(ch)};pp.chips=autoChips(pp);if(mm&&!known(name)){pp.chips=Math.min(9,Math.max(1,ch));pp.manual=pp.chips!==autoChips(pp)}draft.players.push(pp);added++}
       });
       if(added){draft.example=false;ui.paste=false}saveDraft();render();break;
     case 'dPasteToggle':ui.paste=!ui.paste;render();break;
     case 'start':
       var err=setupError();if(err){flash=err;render();return}
       st=blankState();st.title=(draft.title||'Pool Chip Tournament').trim();st.tables=draft.tables;st.leadLimit=draft.leadLimit;
-      st.players=draft.players.map(function(x){return {id:x.id,name:x.name.trim(),chips:x.chips}});
+      st.players=draft.players.map(function(x){var kn=known(x.name);return {id:x.id,name:kn?kn.name:x.name.trim(),key:nkey(x.name),tier:kn?kn.tier:(x.tier||'a'),chips:x.manual?x.chips:autoChips(x),manual:!!x.manual}});
+      st.race=draft.race||1;
       st.phase='running';st.startedAt=Date.now();st.stay=draft.stay!==false;
       st.seed={};st.players.forEach(function(x){st.seed[x.id]=rnd()});
       commit(normalize(st));break;
@@ -501,8 +625,15 @@ function settingsSheet(){
   out+=group('Appearance','<div class="list"><div class="cell">'+seg('theme',[['auto','Automatic'],['light','Light'],['dark','Dark']],theme,'grow')+'</div></div>');
   if(can&&run){
     out+=group('Tournament','<div class="list"><div class="cell"><span class="grow">Tables</span><span class="val">'+S.tables+'</span>'+stepper('tables',S.tables,1,12,'tables')+'</div>'+
+      '<div class="cell"><span class="grow">Race to</span><span class="val">'+(S.race||1)+'</span>'+stepper('race',S.race||1,1,9,'race length')+'</div>'+
       '<div class="cell"><span class="grow">Winner stays on table</span>'+sw('stay',stays(S),'Winner stays on table')+'</div>'+
       '<div class="cell" style="flex-wrap:wrap"><span class="grow">Draw pace</span>'+seg('leadSet',[[1,'Strict'],[2,'Balanced'],[99,'Fastest']],S.leadLimit)+'</div></div>',(stays(S)?'The winner keeps the table and plays the next challenger. ':'')+paceText(S.leadLimit));
+  }
+  if(mode==='local'){
+    out+=group('Ratings on GitHub','<div class="list"><label class="cell"><span style="width:96px;flex:none">Repository</span><input class="tin" id="gh-repo" value="'+h(gh.repo||'')+'" placeholder="owner/repo" autocapitalize="off" autocomplete="off" spellcheck="false"></label>'+
+      '<label class="cell"><span style="width:96px;flex:none">Token</span><input class="tin" id="gh-token" type="password" placeholder="'+(gh.token?'Saved on this phone':'Paste a GitHub token')+'" autocomplete="off"></label>'+
+      '<button class="cell tint" data-act="ghSave">'+(gh.token?'Save and Sync':'Connect')+'</button>'+(gh.token?'<button class="cell tint" data-act="ghSync">Sync Now</button><button class="cell danger" data-act="ghOff">Forget Token on This Phone</button>':'')+'</div>',
+      '<span id="sync-line">'+syncText()+'</span> The token stays on this phone. Other phones can view ratings without one.');
   }
   if(can&&S.phase!=='setup')out+=group('','<div class="list"><button class="cell" data-act="viewOn"><span class="grow">Preview player view</span>'+IC.chev+'</button></div>',h(modeText()));
   else out+=group('','',h(modeText()));
@@ -523,6 +654,11 @@ function sheetHTML(d){
   if(s.t==='reset')return actionSheet(S.phase==='done'?'Start a new tournament?':'End this tournament?','Every result is cleared. Your player list is kept so you can edit it.',[{label:S.phase==='done'?'New Tournament':'End Tournament',cls:'danger',attrs:'data-act="reset"'}]);
   if(s.t==='cancel'){var m=S.matches.find(function(x){return x.id===s.id});if(!m)return '';
     return actionSheet('Cancel this match?',h(d.P[m.a].name)+' vs '+h(d.P[m.b].name)+' on table '+m.table+'. No chips change.',[{label:'Cancel Match',cls:'danger',attrs:'data-act="cancelMatch" data-m="'+m.id+'"'}])}
+  if(s.t==='race'){var rm=S.matches.find(function(x){return x.id===s.id});if(!rm)return '';var rw=d.P[s.w],rl=d.P[s.w===rm.a?rm.b:rm.a],race=S.race||1,rr=[];
+    for(var li=0;li<race;li++)rr.push({label:h(rw.name)+' '+race+'–'+li,attrs:'data-act="win" data-m="'+rm.id+'" data-w="'+s.w+'" data-rl="'+li+'"'});
+    return actionSheet('Final score','Race to '+race+'. '+h(rw.name)+' beat '+h(rl.name)+'. How many racks did '+h(rl.name)+' win?',rr)}
+  if(s.t==='rated'){var rp=ratings()[s.id];if(!rp)return '';
+    return actionSheet(h(rp.name)+' · '+rp.rating,rp.games+' racks, '+rp.w+' won, '+rp.l+' lost. Starting level only matters until they have results.',[['b','Beginner'],['a','Average'],['s','Strong']].map(function(t){return {label:'Starting level: '+t[1]+(rp.tier===t[0]?' ✓':''),attrs:'data-act="setTier" data-k="'+h(rp.key)+'" data-v="'+t[0]+'"'}}))}
   if(s.t==='player'){var p=d.P[s.id];if(!p)return '';
     var rows=[{label:'Add a Chip',attrs:'data-act="adj" data-p="'+p.id+'" data-d="1"'}];
     if(p.cur>0)rows.push({label:'Remove a Chip',attrs:'data-act="adj" data-p="'+p.id+'" data-d="-1"'});
@@ -536,6 +672,15 @@ function sheetHTML(d){
 }
 function paceText(v){return v===1?'Everyone plays once before anyone plays again. Fairest, but tables can sit idle.':v===99?'Tables always refill with whoever is free. Match counts can drift apart.':'Tables refill as soon as they’re free, and no one gets more than one match ahead.'}
 
+function autoChips(x){var kn=known(x.name);return kn?kn.chips:chipsFor((TIERS[x.tier]||TIERS.a).start)}
+function ratingsHTML(){
+  var R=ratings(),list=Object.keys(R).map(function(k){return R[k]}).sort(function(a,b){return b.rating-a.rating||a.name.localeCompare(b.name)});
+  var can=canAct(),line='<p class="gfoot" id="sync-line">'+syncText()+'</p>';
+  if(!list.length)return '<p class="empty">No ratings yet. Ratings start with your first tournament: every rack you record counts.</p>'+line;
+  var rows=list.map(function(r,i){var inner='<span class="rank">'+(i+1)+'</span><span class="grow">'+h(r.name)+(r.prov?' <span class="newtag">New</span>':'')+'<small class="meta">'+r.games+' rack'+(r.games===1?'':'s')+' · '+r.w+'–'+r.l+' · '+r.level+'</small></span><span class="rnum">'+r.rating+'</span><span class="cpill">'+r.chips+'</span>';
+    return can?'<button class="cell" data-act="sheet" data-v="rated" data-id="'+h(r.key)+'">'+inner+'</button>':'<div class="cell">'+inner+'</div>'}).join('');
+  return group('Ratings · '+list.length+' players','<div class="list">'+rows+'</div>','100 points apart means the higher player is expected to win 2 racks for every 1. Chips: 575 and up get 4, 500–574 get 5, 425–499 get 6, under 425 get 7. “New” players have fewer than '+PROV+' racks, so their rating is still settling.','Chips')+line;
+}
 /* ----- setup ----- */
 function renderSetup(){
   if(!canAct()){
@@ -543,14 +688,23 @@ function renderSetup(){
   }
   var err=setupError(),total=draft.players.reduce(function(a,p){return a+p.chips},0),out='';
   out+=group('Name','<div class="list"><label class="cell"><input class="tin" id="d-title" value="'+h(draft.title)+'" maxlength="60" placeholder="Tournament name" aria-label="Tournament name"></label></div>');
-  out+=group('Tables','<div class="list"><div class="cell"><span class="grow">Tables</span><span class="val">'+draft.tables+'</span>'+stepper('dTables',draft.tables,1,12,'tables')+'</div><div class="cell"><span class="grow">Winner stays on table</span>'+sw('dStay',draft.stay!==false,'Winner stays on table')+'</div><div class="cell" style="flex-wrap:wrap"><span class="grow">Draw pace</span>'+seg('dPace',[[1,'Strict'],[2,'Balanced'],[99,'Fastest']],draft.leadLimit)+'</div></div>',(draft.stay!==false?'The winner keeps the table and plays the next challenger. ':'')+paceText(draft.leadLimit));
-  var rows=draft.players.map(function(p,i){return '<div class="cell ind"><button class="minus" data-act="dRemove" data-p="'+p.id+'" aria-label="Remove '+h(p.name)+'">'+IC.minus+'</button><input class="tin" data-name="'+p.id+'" id="n-'+p.id+'" value="'+h(p.name)+'" aria-label="Player '+(i+1)+' name" maxlength="40"><span class="val">'+p.chips+'</span>'+stepper('dChips',p.chips,1,9,'chips for '+h(p.name),' data-p="'+p.id+'"')+'</div>'}).join('');
-  rows+='<div class="cell ind"><button class="plus" data-act="dAdd" aria-label="Add player">'+IC.plus+'</button><input class="tin" id="new-name" placeholder="Add player" maxlength="40"><input class="num" id="new-chips" type="number" min="1" max="9" value="3" aria-label="Starting chips"></div>';
-  out+=group('Players · '+draft.players.length,'<div class="list">'+rows+'</div>',(draft.example?'These are example players. Replace them with your own. ':'')+'Fewer chips for stronger players. '+total+' chips in total. <button class="tlink" data-act="dPasteToggle">'+(ui.paste?'Hide paste box':'Paste a list')+'</button>'+(draft.players.length?' · <button class="tlink" data-act="dClear">Clear all</button>':''),'');
+  out='<div class="tabs" style="position:static">'+seg('stab',[['setup','Set Up'],['ratings','Ratings']],'setup','big')+'</div>'+out;
+  if(ui.stab==='ratings')return header('Set up players and tables')+'<div class="tabs" style="position:static">'+seg('stab',[['setup','Set Up'],['ratings','Ratings']],'ratings','big')+'</div>'+ratingsHTML();
+  out+=group('Tables','<div class="list"><div class="cell"><span class="grow">Tables</span><span class="val">'+draft.tables+'</span>'+stepper('dTables',draft.tables,1,12,'tables')+'</div><div class="cell"><span class="grow">Race to</span><span class="val">'+(draft.race||1)+'</span>'+stepper('dRace',draft.race||1,1,9,'race length')+'</div><div class="cell"><span class="grow">Winner stays on table</span>'+sw('dStay',draft.stay!==false,'Winner stays on table')+'</div><div class="cell" style="flex-wrap:wrap"><span class="grow">Draw pace</span>'+seg('dPace',[[1,'Strict'],[2,'Balanced'],[99,'Fastest']],draft.leadLimit)+'</div></div>',(draft.stay!==false?'The winner keeps the table and plays the next challenger. ':'')+paceText(draft.leadLimit));
+  var R=ratings(),names=Object.keys(R).map(function(k){return R[k].name}).sort();
+  var rows=draft.players.map(function(p,i){
+    var kn=known(p.name),auto=autoChips(p);if(!p.manual)p.chips=auto;
+    var sub=kn?'<small class="meta">Rating '+kn.rating+(kn.prov?' · new':'')+' · '+(p.manual?'you set '+p.chips+' · <button class="tlink" data-act="dAuto" data-p="'+p.id+'">use '+auto+'</button>':'auto '+auto+' chips')+'</small>'
+      :'<small class="meta">New player · <select class="lvlin" data-tier="'+p.id+'" aria-label="Level for '+h(p.name)+'">'+[['b','Beginner'],['a','Average'],['s','Strong']].map(function(t){return '<option value="'+t[0]+'"'+((p.tier||'a')===t[0]?' selected':'')+'>'+t[1]+'</option>'}).join('')+'</select>'+(p.manual?' · you set '+p.chips+' · <button class="tlink" data-act="dAuto" data-p="'+p.id+'">use '+auto+'</button>':'')+'</small>';
+    return '<div class="cell ind"><button class="minus" data-act="dRemove" data-p="'+p.id+'" aria-label="Remove '+h(p.name)+'">'+IC.minus+'</button><span class="pinfo"><input class="tin" data-name="'+p.id+'" id="n-'+p.id+'" value="'+h(p.name)+'" aria-label="Player '+(i+1)+' name" maxlength="40" list="known-names" autocomplete="off">'+sub+'</span><span class="val'+(p.manual?' man':'')+'">'+p.chips+'</span>'+stepper('dChips',p.chips,1,9,'chips for '+h(p.name),' data-p="'+p.id+'"')+'</div>'}).join('');
+  rows+='<div class="cell ind"><button class="plus" data-act="dAdd" aria-label="Add player">'+IC.plus+'</button><input class="tin" id="new-name" placeholder="Add player" maxlength="40" list="known-names" autocomplete="off"><select class="num lvl" id="new-tier" aria-label="Level for a new player"><option value="b">Beginner</option><option value="a" selected>Average</option><option value="s">Strong</option></select></div>';
+  rows+='<datalist id="known-names">'+names.map(function(n){return '<option value="'+h(n)+'">'}).join('')+'</datalist>';
+  out+=group('Players · '+draft.players.length,'<div class="list">'+rows+'</div>',(draft.example?'These are example players. Replace them with your own. ':'')+'Known players get chips from their rating; pick a level for new players (it only matters until they have results). '+total+' chips in total. <button class="tlink" data-act="dPasteToggle">'+(ui.paste?'Hide paste box':'Paste a list')+'</button>'+(draft.players.length?' · <button class="tlink" data-act="dClear">Clear all</button>':''),'');
   if(ui.paste)out+=group('','<div class="list"><div class="cell paste"><textarea class="tin" id="paste-box" placeholder="One player per line, name then chips:&#10;Marcus 2&#10;Tasha, 3"></textarea></div><button class="cell tint" data-act="dPaste">Add These Players</button></div>');
   out+='<button class="btn primary wide" data-act="start" '+(err?'disabled':'')+'>Start Tournament</button>'+(err?'<p class="gfoot" style="text-align:center">'+h(err)+'</p>':'<p class="gfoot" style="text-align:center">Each loss costs one chip. The last player with chips wins.</p>');
   return header('Set up players and tables')+out;
 }
+
 
 /* ----- running ----- */
 function undoable(st,t){
@@ -616,7 +770,7 @@ function historyHTML(d){
     var m=it.m,A=d.P[m.a],B=d.P[m.b];
     if(m.status==='void')return '<div class="cell void"><span class="grow">'+h(A.name)+' vs '+h(B.name)+'</span><span class="sec" style="text-decoration:none">Cancelled</span></div>';
     var W=d.P[m.winner],L=m.winner===m.a?B:A;
-    var inner='<span class="grow"><b style="font-weight:600">'+h(W.name)+'</b> beat '+h(L.name)+'</span><span class="sec">Table '+m.table+'</span>';
+    var inner='<span class="grow"><b style="font-weight:600">'+h(W.name)+'</b> beat '+h(L.name)+((m.rw||1)>1?' '+m.rw+'–'+(m.rl||0):'')+'</span><span class="sec">Table '+m.table+'</span>';
     return can?'<button class="cell" data-act="sheet" data-v="match" data-id="'+m.id+'">'+inner+'</button>':'<div class="cell">'+inner+'</div>';
   }).join('');
   if(items.length>15)rows+='<button class="cell tint" data-act="histAll">'+(ui.histAll?'Show Fewer':'Show All '+items.length)+'</button>';
@@ -628,7 +782,7 @@ function renderRunning(){
   var sub=done?'Finished':d.alive.length+' of '+d.list.length+' players left · '+liveN+' playing';
   var hero='';
   if(done){var w=d.alive[0];hero='<div class="hero"><div class="medal">'+IC.trophy+'</div><h2>'+h(w?w.name+' Wins':'No Winner')+'</h2><p>'+(w?w.wins+' wins from '+w.played+' matches · '+w.cur+' chip'+(w.cur===1?'':'s')+' left':'')+'</p>'+(function(){if(!canAct())return '';var lm=null;S.matches.forEach(function(x){if(x.status==='done'&&(!lm||x.endedSeq>lm.endedSeq))lm=x});return lm?'<button class="btn small" style="margin-top:12px" data-act="undo" data-m="'+lm.id+'">'+IC.undo.replace('<svg','<svg style="width:15px;height:15px;vertical-align:-2px;margin-right:6px"')+'Undo Last Result</button>':''})()+'</div>'}
-  var tabsDef=done?[['standings','Standings'],['history','History']]:[['tables','Tables'],['standings','Standings'],['history','History']];
+  var tabsDef=done?[['standings','Standings'],['history','History'],['ratings','Ratings']]:[['tables','Tables'],['standings','Standings'],['history','History'],['ratings','Ratings']];
   var tab=ui.tab;if(done&&tab==='tables')tab='standings';
   var body='';
   if(tab==='tables'){
@@ -638,6 +792,7 @@ function renderRunning(){
       (q.length?group('Up next','<div class="list">'+q.map(function(p,i){return '<div class="cell"><span class="rank">'+(i+1)+'</span><span class="grow">'+h(p.name)+'</span>'+(i===0?'<span class="sec" style="color:var(--tint-text);font-weight:600">Next</span>':'')+'<span class="sec">'+p.played+' played</span></div>'}).join('')+'</div>','Called in this order: fewest matches first, then whoever has waited longest. A player never faces the person they just played.'):'')+
       (away.length?group('Away','<div class="list"><div class="cell dim"><span class="grow">'+away.join(', ')+'</span></div></div>'):'');
   }else if(tab==='standings')body=standingsHTML(d,done);
+  else if(tab==='ratings')body=ratingsHTML();
   else body=historyHTML(d);
   var toast='',age=ui.last?Date.now()-ui.last.at:1e9;
   if(age<3000){var L=ui.last;toast='<div class="toast" role="status" style="animation-delay:-'+age+'ms"><span class="check">'+IC.check+'</span><div><b>'+h(L.w)+' won'+(stays(S)?' and stays on table '+L.table:'')+'</b><br><span>'+h(L.l)+(L.left>0?' has '+L.left+' chip'+(L.left===1?'':'s')+' left':' is out')+'</span></div></div>'}
@@ -668,6 +823,7 @@ root.addEventListener('change',function(e){
   var t=e.target;
   if(t.name==='pace'){draft.leadLimit=+t.value;saveDraft();render()}
   else if(t.id==='lead-sel'){if(!saving)act('lead',t)}
+  else if(t.dataset&&t.dataset.tier){var tp=draft.players.find(function(x){return x.id===t.dataset.tier});if(tp){tp.tier=t.value;tp.manual=false;saveDraft();render()}}
   else if(t.dataset&&t.dataset.name){render()}
 });
 root.addEventListener('keydown',function(e){
@@ -680,6 +836,7 @@ setInterval(function(){root.querySelectorAll('.elapsed').forEach(function(el){el
 /* ---------- boot ---------- */
 function goLocal(){
   mode='local';
+  ghPull().then(function(){render()},function(e){if(gh.token){sync.state='error';sync.msg=e.message;render()}});
   var ls=lsGet(LS_STATE);
   if(ls&&ls.v&&(ls.updatedAt||0)>(S.updatedAt||0))S=ls;
   render();
@@ -692,8 +849,8 @@ render();
     art=a;
     if(!art){goLocal();return}
     return Promise.resolve(c.use('user')).catch(function(){return null}).then(function(u){
-      if(!u){mode='readonly';render();return}
-      return Promise.resolve(u.canEdit()).catch(function(){return null}).then(function(can){mode=can===false?'readonly':'shared';render()});
+      if(!u){mode='readonly';if(S.db&&S.db.players){DB=S.db;RC=null}render();return}
+      return Promise.resolve(u.canEdit()).catch(function(){return null}).then(function(can){mode=can===false?'readonly':'shared';if(S.db&&S.db.players){DB=S.db;RC=null}render()});
     });
   });
 })();
