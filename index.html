@@ -229,6 +229,9 @@ button.player-name{background:none;border:0;padding:0;text-align:left;border-rad
 @keyframes tagout{0%{opacity:0;transform:translateY(3px)}12%{opacity:1;transform:none}60%{opacity:1}100%{opacity:0}}
 .pool-table-surface .player-row.enter{animation:slidein .6s cubic-bezier(.22,1,.36,1) both}
 @keyframes slidein{from{opacity:0;transform:translateX(-36px);filter:blur(2px)}60%{filter:blur(0)}to{opacity:1;transform:none}}
+.pool-table-surface{grid-template-columns:minmax(0,1fr)}
+.pool-table-surface .player-row{min-width:0;max-width:100%}
+.pool-table-surface .player-row.bye>span{white-space:normal;overflow-wrap:anywhere}
 .pool-table-surface .player-row.bye{color:#c9d6e5;background:rgba(3,34,64,.18)}
 .pool-table-surface .player-row .tag{background:rgba(0,0,0,.35);color:#fff}
 .chip-table-footer{display:flex;align-items:center;justify-content:space-between;gap:.5rem;flex-wrap:wrap;margin-top:.8rem;color:#b9c2d2;font-size:.92rem;font-weight:800}
