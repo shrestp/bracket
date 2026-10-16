@@ -171,6 +171,7 @@ textarea.tin{min-height:110px;resize:vertical;line-height:1.4}
 .veil{position:fixed;inset:0;z-index:50;cursor:progress}
 .empty{background:var(--cell);border-radius:var(--r);padding:28px 16px;text-align:center;color:var(--label-2);font-size:15px;margin:0}
 .paste{padding:12px 16px}
+.nochips .val,.nochips .stepper{display:none}
 .pinfo{flex:1;min-width:0;display:flex;flex-direction:column;gap:5px}
 .meta{display:block;font-size:13px;color:var(--label-2);font-weight:400;letter-spacing:0}
 .meta .tlink{font-size:13px}
@@ -299,7 +300,7 @@ function recordTournament(st){
     if(!DB.players[k])DB.players[k]={name:x.name.trim(),tier:x.tier||tierFromChips(x.chips),added:Date.now()};
   });
   DB.tournaments[st.tid]={date:st.startedAt||Date.now(),title:st.title,updatedAt:Date.now(),
-    matches:st.matches.filter(function(m){return m.status==='done'}).map(function(m){var l=m.winner===m.a?m.b:m.a;return {w:P[m.winner],l:P[l],rw:m.rw||1,rl:m.rl||0}})};
+    matches:(st.type==='de'?deCompute(st).list.filter(function(m){return m.state==='done'}).map(function(m){return {winner:m.w,a:m.p1,b:m.p2,rw:st.race||1,rl:m.rl||0}}):st.matches.filter(function(m){return m.status==='done'})).map(function(m){var l=m.winner===m.a?m.b:m.a;return {w:P[m.winner],l:P[l],rw:m.rw||1,rl:m.rl||0}})};
   saveDB(true);
 }
 function saveDB(push){lsSet(LS_DB,DB);RC=null;if(push&&canSync())schedulePush()}
@@ -418,6 +419,90 @@ function normalize(st,forceTable){
   return st;
 }
 
+
+/* ---------- double elimination ----------
+   The bracket is fixed at the start (random draw, byes spread so no bye meets a bye).
+   Every match's two places are fed by a seed, or by the winner or loser of an earlier match.
+   Results are the only thing stored, so the whole bracket is recomputed from them, and an
+   undo is just deleting a result. */
+function seedOrder(P){var a=[1,2];while(a.length<P){var n=[],L=a.length*2;a.forEach(function(s){n.push(s,L+1-s)});a=n}return a}
+function deBuild(n){
+  var P=2,k=1;while(P<n){P*=2;k++}
+  var M=[],id=function(b,r,i){return b+r+'-'+i},o=seedOrder(P),r,i,t;
+  for(i=0;i<P/2;i++)M.push({id:id('W',1,i),b:'W',r:1,i:i,s1:{seed:o[2*i]},s2:{seed:o[2*i+1]}});
+  for(r=2;r<=k;r++)for(i=0;i<P/Math.pow(2,r);i++)M.push({id:id('W',r,i),b:'W',r:r,i:i,s1:{win:id('W',r-1,2*i)},s2:{win:id('W',r-1,2*i+1)}});
+  var lb;
+  if(k>=2){
+    for(i=0;i<P/4;i++)M.push({id:id('L',1,i),b:'L',r:1,i:i,s1:{lose:id('W',1,2*i)},s2:{lose:id('W',1,2*i+1)}});
+    for(t=1;t<=k-1;t++){
+      var cnt=P/Math.pow(2,t+1);
+      for(i=0;i<cnt;i++)M.push({id:id('L',2*t,i),b:'L',r:2*t,i:i,s1:{win:id('L',2*t-1,i)},s2:{lose:id('W',t+1,t%2?cnt-1-i:i)}});
+      if(t<=k-2)for(i=0;i<cnt/2;i++)M.push({id:id('L',2*t+1,i),b:'L',r:2*t+1,i:i,s1:{win:id('L',2*t,2*i)},s2:{win:id('L',2*t,2*i+1)}});
+    }
+    lb={win:id('L',2*(k-1),0)};
+  }else lb={lose:id('W',1,0)};
+  M.push({id:'G1-0',b:'G',r:1,i:0,s1:{win:id('W',k,0)},s2:lb});
+  M.push({id:'G2-0',b:'G',r:2,i:0,s1:{win:'G1-0'},s2:{lose:'G1-0'},ifNeeded:true});
+  return {P:P,k:k,matches:M};
+}
+function deStage(m,k){return m.b==='W'?2*m.r-2:m.b==='L'?m.r:100+m.r}
+function deLabel(m,k){
+  if(m.b==='G')return m.r===1?'Grand final':'Grand final, deciding match';
+  if(m.b==='W')return m.r===k?'Winners final':'Winners round '+m.r;
+  return m.r===2*(k-1)?'Losers final':'Losers round '+m.r;
+}
+function deCompute(st){
+  var de=st.de,res=de.results||{},by={},list=[];
+  function val(src){
+    if(src.seed!=null)return de.seeds[src.seed-1]||null;
+    var m=by[src.win||src.lose];if(!m||!m.done)return undefined;
+    return src.win?m.w:m.l;
+  }
+  de.matches.forEach(function(d){
+    var o={id:d.id,b:d.b,r:d.r,i:d.i,stage:deStage(d,de.k),label:deLabel(d,de.k),p1:val(d.s1),p2:val(d.s2),done:false,state:'wait'};
+    by[d.id]=o;list.push(o);
+    if(d.ifNeeded){var g=by['G1-0'];
+      if(!g.done){o.p1=o.p2=undefined}
+      else if(g.w===g.p1){o.done=true;o.skip=true;o.w=null;o.l=null;o.state='skip';return}
+    }
+    if(o.p1===undefined||o.p2===undefined)return;
+    if(o.p1===null||o.p2===null){o.done=true;o.bye=true;o.w=o.p1||o.p2||null;o.l=null;o.state='bye';return}
+    var r=res[d.id];
+    if(r){o.done=true;o.state='done';o.w=r.w;o.l=r.w===o.p1?o.p2:o.p1;o.rl=r.rl||0;o.seq=r.seq;o.table=r.table;return}
+    o.state='ready';
+  });
+  var g1=by['G1-0'],g2=by['G2-0'],champ=null;
+  if(g1.done&&!g1.bye&&g1.w===g1.p1)champ=g1.w;else if(g2.done&&!g2.skip)champ=g2.w;else if(g1.bye)champ=g1.w;
+  return {by:by,list:list,champ:champ};
+}
+function deDeps(st,mid){return st.de.matches.filter(function(d){return (d.s1.win===mid||d.s1.lose===mid||d.s2.win===mid||d.s2.lose===mid)})}
+function deUndoable(st,mid){
+  var r=st.de.results[mid];if(!r)return false;
+  return deDeps(st,mid).every(function(d){return !st.de.results[d.id]});
+}
+function deNormalize(st){
+  var D=deCompute(st),de=st.de;de.tables=de.tables||{};
+  Object.keys(de.tables).forEach(function(mid){var m=D.by[mid];if(!m||m.state!=='ready'||de.tables[mid].t>st.tables)delete de.tables[mid]});
+  if(D.champ){st.phase='done';de.tables={};return st}
+  st.phase='running';
+  var used={};Object.keys(de.tables).forEach(function(mid){used[de.tables[mid].t]=1});
+  var ready=D.list.filter(function(m){return m.state==='ready'&&!de.tables[m.id]}).sort(function(a,b){return a.stage-b.stage||a.i-b.i});
+  for(var t=1;t<=st.tables&&ready.length;t++){if(used[t])continue;var m=ready.shift();de.tables[m.id]={t:t,at:Date.now()};used[t]=1}
+  return st;
+}
+function deStart(st,ids){
+  var sh=ids.slice();for(var i=sh.length-1;i>0;i--){var j=Math.floor(rnd()*(i+1)),x=sh[i];sh[i]=sh[j];sh[j]=x}
+  var b=deBuild(sh.length);
+  st.de={P:b.P,k:b.k,matches:b.matches,seeds:sh,results:{},tables:{},seq:0};
+  return deNormalize(st);
+}
+function deRecord(st){
+  var D=deCompute(st),L={};st.players.forEach(function(p){L[p.id]={w:0,l:0,last:0}});
+  D.list.forEach(function(m){if(m.state!=='done')return;L[m.w].w++;L[m.l].l++;L[m.l].last=m.seq});
+  return L;
+}
+function norm(st,f){return st.type==='de'?deNormalize(st):normalize(st,f)}
+
 /* ---------- saving ---------- */
 function renderDoc(st){
   var css=document.getElementById('css').textContent;
@@ -480,7 +565,19 @@ function act(name,el){
       ui.last={w:Wp.name,wid:ds.w,l:Lp.name,table:m.table,left:Lp.cur,at:Date.now()};
       commit(normalize(st));break;
     case 'sheet':ui.sheet={t:ds.v,id:ds.id||null};render();break;
-    case 'race':st=clone(S);st.race=Math.max(1,Math.min(9,(st.race||1)+(+ds.d)));commit(normalize(st));break;
+    case 'race':st=clone(S);st.race=Math.max(1,Math.min(9,(st.race||1)+(+ds.d)));commit(norm(st));break;
+    case 'dType':draft.type=ds.v;if(ds.v==='de'&&(draft.race||1)<2)draft.race=3;saveDraft();render();break;
+    case 'deWin':
+      if((S.race||1)>1&&ds.rl==null){ui.sheet={t:'derace',id:ds.m,w:ds.w};render();return}
+      st=clone(S);var D0=deCompute(st),dm=D0.by[ds.m];
+      if(!dm||dm.state!=='ready'){flash='That match was already scored.';render();return}
+      st.de.seq++;var asg=st.de.tables[ds.m];
+      st.de.results[ds.m]={w:ds.w,rl:Math.max(0,Math.min((st.race||1)-1,+ds.rl||0)),seq:st.de.seq,table:asg?asg.t:0,at:Date.now()};
+      var lid=dm.p1===ds.w?dm.p2:dm.p1,NM=deNameMap(),Lc=deRecord(st)[lid].l;
+      var msg=dm.id==='G1-0'&&ds.w===dm.p2?'One deciding match: the winner takes the tournament':NM[lid]+(Lc>=2?' is out':dm.b==='W'?' drops to the losers bracket':' has 1 loss');
+      ui.last={w:NM[ds.w],wid:ds.w,l:NM[lid],table:asg?asg.t:0,msg:msg,score:(st.race||1)>1?(st.race||1)+'–'+(+ds.rl||0):'',at:Date.now()};
+      commit(deNormalize(st));break;
+    case 'deUndo':st=clone(S);if(!deUndoable(st,ds.m))return;delete st.de.results[ds.m];ui.last=null;commit(deNormalize(st));break;
     case 'dRace':draft.race=Math.max(1,Math.min(9,(draft.race||1)+(+ds.d)));saveDraft();render();break;
     case 'dTier':var tp=draft.players.find(function(x){return x.id===ds.p});if(tp){tp.tier=ds.v;tp.manual=false}saveDraft();render();break;
     case 'dAuto':var ap=draft.players.find(function(x){return x.id===ds.p});if(ap)ap.manual=false;saveDraft();render();break;
@@ -531,15 +628,16 @@ function act(name,el){
       p.withdrawn=true;commit(normalize(st));break;
     case 'tables':
       st=clone(S);var n=st.tables+(+ds.d);if(n<1||n>12)return;
-      if(n<st.tables&&st.matches.some(function(x){return x.status==='live'&&x.table===st.tables})){flash='Table '+st.tables+' has a match in progress. Enter its result before removing the table.';render();return}
-      st.tables=n;commit(normalize(st));break;
+      var busyLast=st.type==='de'?Object.keys(st.de.tables).some(function(x){return st.de.tables[x].t===st.tables}):st.matches.some(function(x){return x.status==='live'&&x.table===st.tables});
+      if(n<st.tables&&busyLast){flash='Table '+st.tables+' has a match in progress. Enter its result before removing the table.';render();return}
+      st.tables=n;commit(norm(st));break;
     case 'lead':st=clone(S);st.leadLimit=+el.value;commit(normalize(st));break;
     case 'viewOn':ui.sheet=null;location.hash='view';break;
     case 'viewOff':history.replaceState(null,'',location.pathname+location.search);render();break;
     case 'claim':mode='shared';flash=null;render();break;
     case 'reset':
       st=blankState();st.title=S.title;st.tables=S.tables;st.leadLimit=S.leadLimit;st.stay=stays(S);st.race=S.race||1;
-      draft={title:S.title,tables:S.tables,leadLimit:S.leadLimit,race:S.race||1,stay:stays(S),example:false,players:S.players.map(function(p){return {id:uid(),name:p.name,tier:p.tier,chips:p.chips,manual:!!p.manual}})};saveDraft();
+      draft={title:S.title,tables:S.tables,leadLimit:S.leadLimit,race:S.race||1,type:S.type||'chip',stay:stays(S),example:false,players:S.players.map(function(p){return {id:uid(),name:p.name,tier:p.tier,chips:p.chips,manual:!!p.manual}})};saveDraft();
       commit(st);break;
     case 'histAll':ui.histAll=!ui.histAll;render();break;
     /* setup */
@@ -570,6 +668,7 @@ function act(name,el){
       st.race=draft.race||1;
       st.phase='running';st.startedAt=Date.now();st.stay=draft.stay!==false;
       st.seed={};st.players.forEach(function(x){st.seed[x.id]=rnd()});
+      if(draft.type==='de'){st.type='de';st.race=draft.race||3;ui.tab='tables';commit(deStart(st,st.players.map(function(x){return x.id})));break}
       commit(normalize(st));break;
   }
 }
@@ -626,8 +725,8 @@ function settingsSheet(){
   if(can&&run){
     out+=group('Tournament','<div class="list"><div class="cell"><span class="grow">Tables</span><span class="val">'+S.tables+'</span>'+stepper('tables',S.tables,1,12,'tables')+'</div>'+
       '<div class="cell"><span class="grow">Race to</span><span class="val">'+(S.race||1)+'</span>'+stepper('race',S.race||1,1,9,'race length')+'</div>'+
-      '<div class="cell"><span class="grow">Winner stays on table</span>'+sw('stay',stays(S),'Winner stays on table')+'</div>'+
-      '<div class="cell" style="flex-wrap:wrap"><span class="grow">Draw pace</span>'+seg('leadSet',[[1,'Strict'],[2,'Balanced'],[99,'Fastest']],S.leadLimit)+'</div></div>',(stays(S)?'The winner keeps the table and plays the next challenger. ':'')+paceText(S.leadLimit));
+      (S.type==='de'?'</div>':'<div class="cell"><span class="grow">Winner stays on table</span>'+sw('stay',stays(S),'Winner stays on table')+'</div>'+
+      '<div class="cell" style="flex-wrap:wrap"><span class="grow">Draw pace</span>'+seg('leadSet',[[1,'Strict'],[2,'Balanced'],[99,'Fastest']],S.leadLimit)+'</div></div>'),S.type==='de'?'Changing the race applies to matches not yet scored.':(stays(S)?'The winner keeps the table and plays the next challenger. ':'')+paceText(S.leadLimit));
   }
   if(mode==='local'){
     out+=group('Ratings on GitHub','<div class="list"><label class="cell"><span style="width:96px;flex:none">Repository</span><input class="tin" id="gh-repo" value="'+h(gh.repo||'')+'" placeholder="owner/repo" autocapitalize="off" autocomplete="off" spellcheck="false"></label>'+
@@ -654,6 +753,12 @@ function sheetHTML(d){
   if(s.t==='reset')return actionSheet(S.phase==='done'?'Start a new tournament?':'End this tournament?','Every result is cleared. Your player list is kept so you can edit it.',[{label:S.phase==='done'?'New Tournament':'End Tournament',cls:'danger',attrs:'data-act="reset"'}]);
   if(s.t==='cancel'){var m=S.matches.find(function(x){return x.id===s.id});if(!m)return '';
     return actionSheet('Cancel this match?',h(d.P[m.a].name)+' vs '+h(d.P[m.b].name)+' on table '+m.table+'. No chips change.',[{label:'Cancel Match',cls:'danger',attrs:'data-act="cancelMatch" data-m="'+m.id+'"'}])}
+  if(s.t==='derace'){var dd2=deCompute(S).by[s.id];if(!dd2)return '';var NN=deNameMap(),rc=S.race||1,ro=[],lo=dd2.p1===s.w?dd2.p2:dd2.p1;
+    for(var lj=0;lj<rc;lj++)ro.push({label:h(NN[s.w])+' '+rc+'–'+lj,attrs:'data-act="deWin" data-m="'+s.id+'" data-w="'+s.w+'" data-rl="'+lj+'"'});
+    return actionSheet('Final score','Race to '+rc+'. '+h(NN[s.w])+' beat '+h(NN[lo])+'. How many racks did '+h(NN[lo])+' win?',ro)}
+  if(s.t==='deres'){var dr=deCompute(S).by[s.id];if(!dr||dr.state!=='done')return '';var N2=deNameMap();
+    return deUndoable(S,s.id)?actionSheet(h(N2[dr.w])+' beat '+h(N2[dr.l]),h(dr.label),[{label:'Remove Result',cls:'danger',attrs:'data-act="deUndo" data-m="'+s.id+'"'}])
+      :actionSheet(h(N2[dr.w])+' beat '+h(N2[dr.l]),'This result can’t be removed because a later match already depends on it. Undo the later results first.',[])}
   if(s.t==='race'){var rm=S.matches.find(function(x){return x.id===s.id});if(!rm)return '';var rw=d.P[s.w],rl=d.P[s.w===rm.a?rm.b:rm.a],race=S.race||1,rr=[];
     for(var li=0;li<race;li++)rr.push({label:h(rw.name)+' '+race+'–'+li,attrs:'data-act="win" data-m="'+rm.id+'" data-w="'+s.w+'" data-rl="'+li+'"'});
     return actionSheet('Final score','Race to '+race+'. '+h(rw.name)+' beat '+h(rl.name)+'. How many racks did '+h(rl.name)+' win?',rr)}
@@ -690,21 +795,76 @@ function renderSetup(){
   out+=group('Name','<div class="list"><label class="cell"><input class="tin" id="d-title" value="'+h(draft.title)+'" maxlength="60" placeholder="Tournament name" aria-label="Tournament name"></label></div>');
   out='<div class="tabs" style="position:static">'+seg('stab',[['setup','Set Up'],['ratings','Ratings']],'setup','big')+'</div>'+out;
   if(ui.stab==='ratings')return header('Set up players and tables')+'<div class="tabs" style="position:static">'+seg('stab',[['setup','Set Up'],['ratings','Ratings']],'ratings','big')+'</div>'+ratingsHTML();
-  out+=group('Tables','<div class="list"><div class="cell"><span class="grow">Tables</span><span class="val">'+draft.tables+'</span>'+stepper('dTables',draft.tables,1,12,'tables')+'</div><div class="cell"><span class="grow">Race to</span><span class="val">'+(draft.race||1)+'</span>'+stepper('dRace',draft.race||1,1,9,'race length')+'</div><div class="cell"><span class="grow">Winner stays on table</span>'+sw('dStay',draft.stay!==false,'Winner stays on table')+'</div><div class="cell" style="flex-wrap:wrap"><span class="grow">Draw pace</span>'+seg('dPace',[[1,'Strict'],[2,'Balanced'],[99,'Fastest']],draft.leadLimit)+'</div></div>',(draft.stay!==false?'The winner keeps the table and plays the next challenger. ':'')+paceText(draft.leadLimit));
+  var isDE=draft.type==='de';
+  out+=group('Tournament type','<div class="list"><div class="cell">'+seg('dType',[['chip','Chip'],['de','Double elimination']],isDE?'de':'chip','grow')+'</div></div>',isDE?'Random draw. Lose twice and you’re out. Everyone plays the same race.':'Each loss costs one chip. The last player with chips wins.');
+  out+=group('Tables','<div class="list"><div class="cell"><span class="grow">Tables</span><span class="val">'+draft.tables+'</span>'+stepper('dTables',draft.tables,1,12,'tables')+'</div><div class="cell"><span class="grow">Race to</span><span class="val">'+(draft.race||1)+'</span>'+stepper('dRace',draft.race||1,1,9,'race length')+'</div>'+(isDE?'</div>':'<div class="cell"><span class="grow">Winner stays on table</span>'+sw('dStay',draft.stay!==false,'Winner stays on table')+'</div><div class="cell" style="flex-wrap:wrap"><span class="grow">Draw pace</span>'+seg('dPace',[[1,'Strict'],[2,'Balanced'],[99,'Fastest']],draft.leadLimit)+'</div></div>'),isDE?'':(draft.stay!==false?'The winner keeps the table and plays the next challenger. ':'')+paceText(draft.leadLimit));
   var R=ratings(),names=Object.keys(R).map(function(k){return R[k].name}).sort();
   var rows=draft.players.map(function(p,i){
     var kn=known(p.name),auto=autoChips(p);if(!p.manual)p.chips=auto;
     var sub=kn?'<small class="meta">Rating '+kn.rating+(kn.prov?' · new':'')+' · '+(p.manual?'you set '+p.chips+' · <button class="tlink" data-act="dAuto" data-p="'+p.id+'">use '+auto+'</button>':'auto '+auto+' chips')+'</small>'
       :'<small class="meta">New player · <select class="lvlin" data-tier="'+p.id+'" aria-label="Level for '+h(p.name)+'">'+[['b','Beginner'],['a','Average'],['s','Strong']].map(function(t){return '<option value="'+t[0]+'"'+((p.tier||'a')===t[0]?' selected':'')+'>'+t[1]+'</option>'}).join('')+'</select>'+(p.manual?' · you set '+p.chips+' · <button class="tlink" data-act="dAuto" data-p="'+p.id+'">use '+auto+'</button>':'')+'</small>';
+    if(isDE)sub=sub.replace(/ · auto \d+ chips/,'').replace(/ · you set \d+ · <button[^]*?<\/button>/,'');
     return '<div class="cell ind"><button class="minus" data-act="dRemove" data-p="'+p.id+'" aria-label="Remove '+h(p.name)+'">'+IC.minus+'</button><span class="pinfo"><input class="tin" data-name="'+p.id+'" id="n-'+p.id+'" value="'+h(p.name)+'" aria-label="Player '+(i+1)+' name" maxlength="40" list="known-names" autocomplete="off">'+sub+'</span><span class="val'+(p.manual?' man':'')+'">'+p.chips+'</span>'+stepper('dChips',p.chips,1,9,'chips for '+h(p.name),' data-p="'+p.id+'"')+'</div>'}).join('');
   rows+='<div class="cell ind"><button class="plus" data-act="dAdd" aria-label="Add player">'+IC.plus+'</button><input class="tin" id="new-name" placeholder="Add player" maxlength="40" list="known-names" autocomplete="off"><select class="num lvl" id="new-tier" aria-label="Level for a new player"><option value="b">Beginner</option><option value="a" selected>Average</option><option value="s">Strong</option></select></div>';
   rows+='<datalist id="known-names">'+names.map(function(n){return '<option value="'+h(n)+'">'}).join('')+'</datalist>';
-  out+=group('Players · '+draft.players.length,'<div class="list">'+rows+'</div>',(draft.example?'These are example players. Replace them with your own. ':'')+'Known players get chips from their rating; pick a level for new players (it only matters until they have results). '+total+' chips in total. <button class="tlink" data-act="dPasteToggle">'+(ui.paste?'Hide paste box':'Paste a list')+'</button>'+(draft.players.length?' · <button class="tlink" data-act="dClear">Clear all</button>':''),'');
+  out+=group('Players · '+draft.players.length,'<div class="list'+(isDE?' nochips':'')+'">'+rows+'</div>',(draft.example?'These are example players. Replace them with your own. ':'')+(isDE?'Pick a level for new players so their rating starts in the right place. ':'Known players get chips from their rating; pick a level for new players (it only matters until they have results). '+total+' chips in total. ')+'<button class="tlink" data-act="dPasteToggle">'+(ui.paste?'Hide paste box':'Paste a list')+'</button>'+(draft.players.length?' · <button class="tlink" data-act="dClear">Clear all</button>':''),'');
   if(ui.paste)out+=group('','<div class="list"><div class="cell paste"><textarea class="tin" id="paste-box" placeholder="One player per line, name then chips:&#10;Marcus 2&#10;Tasha, 3"></textarea></div><button class="cell tint" data-act="dPaste">Add These Players</button></div>');
-  out+='<button class="btn primary wide" data-act="start" '+(err?'disabled':'')+'>Start Tournament</button>'+(err?'<p class="gfoot" style="text-align:center">'+h(err)+'</p>':'<p class="gfoot" style="text-align:center">Each loss costs one chip. The last player with chips wins.</p>');
+  out+='<button class="btn primary wide" data-act="start" '+(err?'disabled':'')+'>Start Tournament</button>'+(err?'<p class="gfoot" style="text-align:center">'+h(err)+'</p>':'<p class="gfoot" style="text-align:center">'+(isDE?'The bracket is drawn when you start.':'Each loss costs one chip. The last player with chips wins.')+'</p>');
   return header('Set up players and tables')+out;
 }
 
+
+
+/* ----- double elimination screens ----- */
+function deNameMap(){var P={};S.players.forEach(function(p){P[p.id]=p.name});return P}
+function deLastOnTable(t){var best=null;Object.keys(S.de.results).forEach(function(mid){var r=S.de.results[mid];if(r.table===t&&(!best||r.seq>S.de.results[best].seq))best=mid});return best}
+function renderDE(){
+  var D=deCompute(S),de=S.de,done=S.phase==='done',N=deNameMap(),R=deRecord(S),can=canAct();
+  var still=S.players.filter(function(p){return done?p.id===D.champ:R[p.id].l<2});
+  var sub=done?'Double elimination · finished':'Double elimination · race to '+(S.race||1)+' · '+still.length+' of '+S.players.length+' still in';
+  var hero='';
+  if(done){var cw=D.champ,lm=null;Object.keys(de.results).forEach(function(mid){if(!lm||de.results[mid].seq>de.results[lm].seq)lm=mid});
+    hero='<div class="hero"><div class="medal">'+IC.trophy+'</div><h2>'+h(N[cw]||'Champion')+' Wins</h2><p>'+R[cw].w+' match wins, '+R[cw].l+' loss'+(R[cw].l===1?'':'es')+'</p>'+(can&&lm&&deUndoable(S,lm)?'<button class="btn small" style="margin-top:12px" data-act="deUndo" data-m="'+lm+'">'+IC.undo.replace('<svg','<svg style="width:15px;height:15px;vertical-align:-2px;margin-right:6px"')+'Undo Last Result</button>':'')+'</div>'}
+  var tabsDef=(done?[]:[['tables','Tables']]).concat([['bracket','Bracket'],['standings','Standings'],['ratings','Ratings']]);
+  var tab=ui.tab;if(!tabsDef.some(function(x){return x[0]===tab}))tab=done?'bracket':'tables';
+  var body='';
+  if(tab==='tables'){
+    for(var t=1;t<=S.tables;t++){
+      var mid=null;Object.keys(de.tables).forEach(function(x){if(de.tables[x].t===t)mid=x});
+      var lu=deLastOnTable(t),undo=can&&lu&&deUndoable(S,lu)?'<button class="undo" data-act="deUndo" data-m="'+lu+'" aria-label="Undo last result on table '+t+'">'+IC.undo+'Undo</button>':'';
+      if(mid){var m=D.by[mid];
+        var cell=function(p){var tag=R[p].l===1?'<span class="newtag">1 loss</span>':'';return '<button class="cell pcell" data-act="deWin" data-m="'+mid+'" data-w="'+p+'" '+(can?'':'disabled')+'><span class="name">'+h(N[p])+tag+'</span></button>'};
+        body+=group('Table '+t,'<div class="list">'+cell(m.p1)+cell(m.p2)+'</div>',h(m.label)+' · race to '+(S.race||1)+(can&&t===1?'. Tap the player who won.':''),'<span class="elapsed" data-t="'+de.tables[mid].at+'">'+mins(de.tables[mid].at)+'</span>'+undo);
+      }else body+=group('Table '+t,'<div class="list"><div class="cell"><span class="grow" style="color:var(--label-2)">Waiting for the next match</span></div></div>','',undo||'Open');
+    }
+    var ready=D.list.filter(function(m){return m.state==='ready'&&!de.tables[m.id]}).sort(function(a,b){return a.stage-b.stage||a.i-b.i});
+    if(ready.length)body+=group('Up next','<div class="list">'+ready.map(function(m,i){return '<div class="cell"><span class="rank">'+(i+1)+'</span><span class="grow">'+h(N[m.p1])+' vs '+h(N[m.p2])+'<small class="meta">'+h(m.label)+'</small></span>'+(i===0?'<span class="sec" style="color:var(--tint-text);font-weight:600">Next</span>':'')+'</div>'}).join('')+'</div>','These go to the next free table, in this order.');
+    var waiting=D.list.filter(function(m){return m.state==='wait'&&!(m.id==='G2-0')}).length;
+    if(waiting)body+='<p class="gfoot">'+waiting+' more match'+(waiting===1?'':'es')+' will be set as results come in.</p>';
+  }else if(tab==='bracket'){
+    var groups={};D.list.forEach(function(m){if(m.state==='skip'||(m.id==='G2-0'&&m.state==='wait'))return;var key=m.stage+'|'+m.label;(groups[key]=groups[key]||{stage:m.stage,label:m.b==='W'||m.b==='L'?m.label:'Grand final',ms:[]}).ms.push(m)});
+    Object.keys(groups).map(function(k){return groups[k]}).sort(function(a,b){return a.stage-b.stage}).forEach(function(g){
+      var rows=g.ms.map(function(m){
+        if(m.state==='bye'){return m.w?'<div class="cell dim"><span class="grow">'+h(N[m.w])+' moves on</span><span class="sec">Bye</span></div>':''}
+        if(m.state==='done'){var sc=(S.race||1)>1?' '+(S.race||1)+'–'+(m.rl||0):'';var inner='<span class="grow"><b style="font-weight:600">'+h(N[m.w])+'</b> beat '+h(N[m.l])+sc+'</span>'+(m.id==='G2-0'?'<span class="sec">Deciding</span>':'');
+          return can?'<button class="cell" data-act="sheet" data-v="deres" data-id="'+m.id+'">'+inner+'</button>':'<div class="cell">'+inner+'</div>'}
+        var a=m.p1?h(N[m.p1]):'<span style="color:var(--label-3)">TBD</span>',b=m.p2?h(N[m.p2]):'<span style="color:var(--label-3)">TBD</span>';
+        var where=de.tables[m.id]?'Table '+de.tables[m.id].t:m.state==='ready'?'Up next':'';
+        return '<div class="cell'+(m.state==='wait'?' dim':'')+'"><span class="grow">'+a+' vs '+b+'</span>'+(where?'<span class="sec">'+where+'</span>':'')+'</div>';
+      }).join('');
+      if(rows)body+=group(h(g.label),'<div class="list">'+rows+'</div>');
+    });
+    body+='<p class="gfoot">'+(can?'Tap a result to remove it, if no later match depends on it. ':'')+'Lose twice and you’re out. If the losers bracket winner wins the grand final, one deciding match is played.</p>';
+  }else if(tab==='standings'){
+    var inP=still.slice().sort(function(a,b){return R[a.id].l-R[b.id].l||R[b.id].w-R[a.id].w||a.name.localeCompare(b.name)});
+    var out=S.players.filter(function(p){return still.indexOf(p)<0}).sort(function(a,b){return R[b.id].last-R[a.id].last});
+    body=group(done?'Champion':'Still in','<div class="list">'+inP.map(function(p){return '<div class="cell"><span class="grow">'+h(p.name)+'</span><span class="sec">'+(done?'Winner':R[p.id].l===0?'No losses':'1 loss')+'</span><span class="sec">'+R[p.id].w+'–'+R[p.id].l+'</span></div>'}).join('')+'</div>');
+    if(out.length)body+=group('Out','<div class="list">'+out.map(function(p,i){return '<div class="cell dim"><span class="rank">'+(still.length+i+1)+'</span><span class="grow">'+h(p.name)+'</span><span class="sec">'+R[p.id].w+'–'+R[p.id].l+'</span></div>'}).join('')+'</div>','Most recently knocked out at the top.');
+  }else body=ratingsHTML();
+  var toast='',age=ui.last?Date.now()-ui.last.at:1e9;
+  if(age<3000&&ui.last.msg){var L=ui.last;toast='<div class="toast" role="status" style="animation-delay:-'+age+'ms"><span class="check">'+IC.check+'</span><div><b>'+h(L.w)+' won'+(L.score?' '+L.score:'')+'</b><br><span>'+h(L.msg)+'</span></div></div>'}
+  return header(sub)+hero+'<div class="tabs">'+seg('tab',tabsDef,tab,'big')+'</div>'+body+toast;
+}
 
 /* ----- running ----- */
 function undoable(st,t){
@@ -777,6 +937,7 @@ function historyHTML(d){
   return group('Results','<div class="list">'+rows+'</div>',can?'Tap a result to correct it.':'','Newest first');
 }
 function renderRunning(){
+  if(S.type==='de')return renderDE();
   var d=derive(S),done=S.phase==='done';
   var liveN=S.matches.filter(function(m){return m.status==='live'}).length;
   var sub=done?'Finished':d.alive.length+' of '+d.list.length+' players left · '+liveN+' playing';
