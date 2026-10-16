@@ -997,7 +997,7 @@ function ratingsHTML(inSheet){
   var can=canAct(),line='<p class="panel-note" id="sync-line">'+syncText()+'</p>';
   var body=!list.length?'<p class="muted" style="margin:0">No Hub Ratings yet. Add players below, or just play: every rack you record counts.</p>':
     '<ol class="chip-standings-list rlist">'+list.map(function(r,i){
-      var nm=h(r.name)+(r.prov?'<span class="newtag">New</span>':'')+'<small>'+r.games+' rack'+(r.games===1?'':'s')+' · '+r.w+'–'+r.l+' · '+r.level+(r.start!=null?' · started '+r.start:'')+'</small>';
+      var nm=h(r.name)+(r.prov?'<span class="newtag">New</span>':'')+'<small>'+r.games+' rack'+(r.games===1?'':'s')+' · '+r.w+' – '+r.l+' · '+r.level+(r.start!=null?' · started '+r.start:'')+'</small>';
       return '<li><span class="qrank">'+(i+1)+'</span>'+(can?'<button class="player-name" data-act="sheet" data-v="rated" data-id="'+h(r.key)+'">'+nm+'</button>':'<span class="player-name">'+nm+'</span>')+'<span class="rnum">'+r.rating+'</span><strong title="Chips">'+r.chips+'</strong></li>'}).join('')+'</ol>';
   return '<aside class="'+(inSheet?'rsheet':'side-panel')+'"><div class="panel-heading">'+(inSheet?'<span class="muted" style="font-weight:800;font-size:.85rem">'+list.length+' players</span>':'<h2>Hub Ratings</h2>')+'<span class="muted" style="font-weight:800;font-size:.85rem">Hub · Chips</span></div>'+body+
     (list.length?'<p class="panel-note">100 points apart means the higher player is expected to win 2 racks for every 1. 575 and up get 4 chips, 500–574 get 5, 425–499 get 6, under 425 get 7. “New” means fewer than '+PROV+' racks.</p>':'')+line+'</aside>';
@@ -1102,8 +1102,8 @@ function renderDE(){
   var outP=S.players.filter(function(p){return still.indexOf(p)<0}).sort(function(a,b){return R[b.id].last-R[a.id].last});
   var stand='<aside class="side-panel"><h2>'+(done?'Champion':'Still In')+'</h2><ol class="chip-standings-list">'+inP.map(function(p,i){
       var where=null;Object.keys(de.tables).forEach(function(mid){var m=D.by[mid];if(m&&(m.p1===p.id||m.p2===p.id))where='Table '+de.tables[mid].t});
-      return '<li><span class="qrank">'+(i+1)+'</span><span class="player-name">'+h(p.name)+'<small>'+(done?'Winner':(R[p.id].l===0?'No losses':'1 loss')+(where?' · '+where:''))+'</small></span><strong>'+R[p.id].w+'–'+R[p.id].l+'</strong></li>'}).join('')+'</ol></aside>';
-  var elim='<aside class="side-panel"><h2>Eliminated Players</h2>'+(outP.length?'<ol class="eliminated-list">'+outP.map(function(p){return '<li>'+h(p.name)+' <span class="muted">'+R[p.id].w+'–'+R[p.id].l+'</span></li>'}).join('')+'</ol>':'<p class="muted" style="margin:0">No one has been eliminated yet.</p>')+'</aside>';
+      return '<li><span class="qrank">'+(i+1)+'</span><span class="player-name">'+h(p.name)+'<small>'+(done?'Winner':(R[p.id].l===0?'No losses':'1 loss')+(where?' · '+where:''))+'</small></span><strong>'+R[p.id].w+' – '+R[p.id].l+'</strong></li>'}).join('')+'</ol></aside>';
+  var elim='<aside class="side-panel"><h2>Eliminated Players</h2>'+(outP.length?'<ol class="eliminated-list">'+outP.map(function(p){return '<li>'+h(p.name)+' <span class="muted">'+R[p.id].w+' – '+R[p.id].l+'</span></li>'}).join('')+'</ol>':'<p class="muted" style="margin:0">No one has been eliminated yet.</p>')+'</aside>';
   var side='<div class="side-wrap'+(mt==='players'?' mobile-active':'')+'" data-mobile-view="players">'+stand+elim+'</div>';
   var toast='',age=ui.last?Date.now()-ui.last.at:1e9;
   if(age<3000&&ui.last.msg){var L=ui.last;toast='<div class="toast" role="status" style="animation-delay:-'+age+'ms"><span class="dot">✓</span><div><b>'+h(L.w)+' won'+(L.score?' '+L.score:'')+'</b><br><span>'+h(L.msg)+'</span></div></div>'}
@@ -1192,7 +1192,7 @@ function playersHTML(d,done){
   var canE=canAct()&&!done;
   function li(p,i){
     var status=done&&p.alive?'Winner':p.withdrawn?'Withdrew':!p.alive?'Out':p.busy?'Table '+p.table:p.held?'Table '+p.held:p.away?'Away':'Waiting';
-    var nm=h(p.name)+adjMark(p.id)+'<small>'+status+' · '+p.wins+'–'+p.losses+'</small>';
+    var nm=h(p.name)+adjMark(p.id)+'<small>'+status+' · '+p.wins+' – '+p.losses+'</small>';
     var name=canE?'<button class="player-name" data-act="sheet" data-v="player" data-id="'+p.id+'">'+nm+'</button>':'<span class="player-name">'+nm+'</span>';
     var chips=canE?'<span class="chip-adjuster" aria-label="'+h(p.name)+' chip controls"><button data-act="adj" data-p="'+p.id+'" data-d="-1" '+(p.cur<=0?'disabled':'')+' aria-label="Remove a chip">-</button><strong data-bump="p'+p.id+'">'+p.cur+'</strong><button data-act="adj" data-p="'+p.id+'" data-d="1" aria-label="Add a chip">+</button></span>':'<strong data-bump="p'+p.id+'">'+p.cur+'</strong>';
     return '<li class="'+(p.alive?'':'eliminated')+'"><span class="qrank">'+(p.alive?i+1:'')+'</span>'+name+chips+'</li>';
