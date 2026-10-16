@@ -51,6 +51,11 @@ button:not(:disabled):active{filter:brightness(1.15);transform:scale(.97)}
 .version-badge{display:inline-grid;place-items:center;min-height:1.45rem;margin-left:.45rem;border:1px solid var(--line);border-radius:999px;background:var(--panel);color:#b9c2d2;font-size:.72rem;letter-spacing:0;padding:.08rem .48rem;text-transform:none;vertical-align:middle}
 :root[data-theme="light"] .version-badge{color:var(--muted)}
 .version-badge.live{border-color:#1f6f46;color:#bbf7d0}
+.version-badge.test{border-color:#b45309;color:#fdba74;background:rgba(249,115,22,.12)}
+:root[data-theme="light"] .version-badge.test{color:#c2410c}
+.testbar{margin:1rem 0 0;border:1px dashed #b45309;border-radius:7px;background:rgba(249,115,22,.08);color:#fdba74;font-weight:600;padding:.6rem .75rem;font-size:.92rem}
+.testbar b{margin-right:.4rem}
+:root[data-theme="light"] .testbar{color:#9a3412}
 :root[data-theme="light"] .version-badge.live{color:#15803d;border-color:#86efac}
 .topbar{display:flex;align-items:center;justify-content:space-between;gap:.75rem;flex-wrap:wrap;border-bottom:1px solid var(--line-3);padding-bottom:1rem}
 .topbar h1,.intro h1{margin:0;color:var(--strong);font-size:clamp(2rem,4vw,3.25rem);line-height:1;letter-spacing:-.01em}
@@ -454,7 +459,7 @@ function ratings(){
 }
 function known(name){var k=nkey(name);return k&&DB.players[k]?ratings()[k]:null}
 function recordTournament(st){
-  if(!st||st.phase==='setup'||!st.players.length)return;
+  if(!st||st.test||st.phase==='setup'||!st.players.length)return;
   if(!st.tid)st.tid='t'+(st.startedAt||Date.now());
   var P={};st.players.forEach(function(x){
     var k=x.key||nkey(x.name);P[x.id]=k;
@@ -742,6 +747,7 @@ function act(name,el){
       commit(normalize(st));break;
     case 'stay':st=clone(S);st.stay=!stays(st);if(!st.stay)st.hold={};commit(normalize(st));break;
     case 'dHc':draft.hc=draft.hc===false;saveDraft();render();break;
+    case 'testToggle':st=clone(S);st.test=!st.test;if(st.test&&st.tid&&DB.tournaments[st.tid]){DB.tournaments[st.tid].matches=[];DB.tournaments[st.tid].updatedAt=Date.now();saveDB(true)}ui._keepSheet=ui.sheet;commit(st);break;
     case 'hcToggle':st=clone(S);st.hc=!st.hc;if(st.hc&&!st.rt)deSnapRatings(st);commit(norm(st));break;
     case 'dStay':draft.stay=draft.stay===false;saveDraft();render();break;
     case 'unpick':ui.pending=null;ui.confirm=null;render();break;
@@ -841,7 +847,7 @@ function act(name,el){
     case 'viewOff':history.replaceState(null,'',location.pathname+location.search);render();break;
     case 'claim':mode='shared';flash=null;render();break;
     case 'reset':
-      st=blankState();st.title=S.title;st.tables=S.tables;st.leadLimit=S.leadLimit;st.stay=stays(S);st.race=S.race||1;
+      st=blankState();st.test=!!S.test;st.title=S.title;st.tables=S.tables;st.leadLimit=S.leadLimit;st.stay=stays(S);st.race=S.race||1;
       draft={title:S.title,tables:S.tables,leadLimit:S.leadLimit,race:S.race||1,worst:S.worst==null?2:S.worst,type:S.type||'chip',hc:S.hc!==false,stay:stays(S),example:false,players:S.players.map(function(p){return {id:uid(),name:p.name,tier:p.tier,chips:p.chips,manual:!!p.manual}})};saveDraft();
       commit(st);break;
     case 'histAll':ui.histAll=!ui.histAll;render();break;
@@ -871,7 +877,7 @@ function act(name,el){
       st=blankState();st.title=(draft.title||'Pool Chip Tournament').trim();st.tables=draft.tables;st.leadLimit=draft.leadLimit;
       st.players=draft.players.map(function(x){var kn=known(x.name);return {id:x.id,name:kn?kn.name:x.name.trim(),key:nkey(x.name),tier:kn?kn.tier:(x.tier||'a'),chips:x.manual?x.chips:autoChips(x),manual:!!x.manual}});
       st.race=draft.race||1;st.worst=draft.worst==null?2:+draft.worst;
-      st.phase='running';st.startedAt=Date.now();st.stay=draft.stay!==false;
+      st.phase='running';st.startedAt=Date.now();st.stay=draft.stay!==false;st.test=!!S.test;
       st.seed={};st.players.forEach(function(x){st.seed[x.id]=rnd()});
       if(draft.type==='de'){st.type='de';st.race=draft.race||3;st.hc=draft.hc!==false;deSnapRatings(st);ui.tab='bracket';ui.btab=null;commit(deStart(st,st.players.map(function(x){return x.id})));break}
       commit(normalize(st));break;
@@ -899,6 +905,10 @@ function modeText(){
   return 'Results are live. Anyone you share this page with sees them update.';
 }
 function badge(){
+  return badge0()+(S&&S.test?' <span class="version-badge test">Testing</span>':'');
+}
+function testNote(){return S&&S.test?'<p class="testbar" role="status"><b>Testing mode</b> Results here don’t count toward Hub Ratings. Turn it off in Settings.</p>':''}
+function badge0(){
   if(saving)return '<span class="version-badge">Saving…</span>';
   if(mode==='shared'&&location.hash!=='#view')return '<span class="version-badge live">Live</span>';
   if(mode==='local')return '<span class="version-badge">This device</span>';
@@ -909,7 +919,7 @@ function seg(act,items,cur){return '<div class="seg2" role="group">'+items.map(f
 function stepper(act,val,min,max,label,extra){return '<span class="stepper" role="group" aria-label="'+label+'"><button data-act="'+act+'" data-d="-1"'+(extra||'')+' aria-label="Decrease '+label+'" '+(val<=min?'disabled':'')+'>−</button><b>'+val+'</b><button data-act="'+act+'" data-d="1"'+(extra||'')+' aria-label="Increase '+label+'" '+(val>=max?'disabled':'')+'>+</button></span>'}
 function toggle(act,on,label){return '<button class="toggle'+(on?' on':'')+'" data-act="'+act+'" role="switch" aria-checked="'+on+'"><span>'+label+'</span><i></i></button>'}
 function header(eyebrow,title,sub,tools){
-  return '<header class="topbar"><div><p class="eyebrow">'+eyebrow+' '+badge()+'</p><h1>'+h(title)+'</h1>'+(sub?'<p>'+sub+'</p>':'')+'</div>'+(tools?'<div class="toolbar">'+tools+'</div>':'')+'</header>'+
+  return '<header class="topbar"><div><p class="eyebrow">'+eyebrow+' '+badge()+'</p><h1>'+h(title)+'</h1>'+(sub?'<p>'+sub+'</p>':'')+'</div>'+(tools?'<div class="toolbar">'+tools+'</div>':'')+'</header>'+testNote()+
     (flash?'<p class="flash" role="status">'+h(flash)+'</p>':'');
 }
 function lastUndo(){
@@ -947,6 +957,7 @@ function settingsSheet(){
       '<div class="choices"><button class="primary" data-act="ghSave">'+(gh.token?'Save and Sync':'Connect')+'</button>'+(gh.token?'<button data-act="ghSync">Sync Now</button><button class="danger" data-act="ghOff">Forget Token on This Phone</button>':'')+'</div>'+
       '<p><span id="sync-line">'+syncText()+'</span> The token stays on this phone. Other phones can view Hub Ratings without one.</p></div>';
   }
+  if(can)out+='<div class="sheet-sec"><h3>Testing</h3>'+toggle('testToggle',!!S.test,'Testing mode')+'<p>'+(S.test?'On: results from this tournament won’t count toward Hub Ratings. ':'Turn on to try features or practice. ')+'Turning it off part way through counts the whole tournament.</p></div>';
   if(mode==='readonly')out+='<div class="sheet-sec"><p>'+h(modeText())+'</p><button data-act="claim">I’m the Director</button></div>';
   return '<div class="scrim" data-act="closeSheet"></div><div class="sheet" role="dialog" aria-modal="true" aria-label="Settings"><div class="sheet-head"><h2>Settings</h2><button data-act="closeSheet">Done</button></div>'+out+'</div>';
 }
@@ -1040,7 +1051,7 @@ function renderSetup(){
     (ui.paste?'<textarea id="paste-box" placeholder="One player per line'+(isDE?'':', name then chips:&#10;Prajesh, 4&#10;Amit, 5')+'" spellcheck="false"></textarea><div class="entry-actions" style="margin-top:.5rem"><button data-act="dPaste">Add These Players</button></div>':'')+
     '<div class="entry-actions"><button class="primary" data-act="start" '+(err?'disabled':'')+'>'+(isDE?'Randomize &amp; Create Bracket':'Create Chip Tournament')+'</button><span>'+draft.players.length+' players'+(isDE?'':' · '+total+' chips')+'</span></div>'+
     (err?'<p class="error" style="margin-top:1rem">'+h(err)+'</p>':'')+(flash?'<p class="flash">'+h(flash)+'</p>':'')+'</section>';
-  return '<main class="shell home"><section class="intro"><p class="eyebrow">Pool tournament runner '+badge()+'</p><h1>Pool Tournament Tie Sheet Creator</h1><p>Enter players, choose the tournament style and tables. Chips come from each player’s Hub Rating, and every result is saved'+(mode==='shared'?' live for everyone with the link.':' on this device.')+'</p>'+
+  return '<main class="shell home"><section class="intro"><p class="eyebrow">Pool tournament runner '+badge()+'</p><h1>Pool Tournament Tie Sheet Creator</h1>'+testNote()+'<p>Enter players, choose the tournament style and tables. Chips come from each player’s Hub Rating, and every result is saved'+(mode==='shared'?' live for everyone with the link.':' on this device.')+'</p>'+
     '<div class="toolbar" style="margin-top:1rem"><button data-act="sheet" data-v="ratings">Hub Rating</button><button data-act="sheet" data-v="settings">Settings</button></div></section>'+out+'</main>';
 }
 
