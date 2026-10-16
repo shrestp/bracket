@@ -987,13 +987,17 @@ function ratingsHTML(inSheet){
 
 /* ----- setup ----- */
 function closeOpts(cur,n){var o='<option value="0"'+(cur===0||cur>n?' selected':'')+'>No preference</option>';for(var t=1;t<=n;t++)o+='<option value="'+t+'"'+(cur===t?' selected':'')+'>Table '+t+'</option>';return o}
+/* Usual players: always offered as suggestions when adding a player. */
+var REGULARS=['Abhinav','Prajesh','Kaka','Yash','Amit','Pramod','Sushant','Sagar','Dipen','Manish','Arjan'];
 function renderSetup(){
   if(!canAct()){
     return '<main class="shell bracket-screen">'+header('Pool tournament runner',S.title||'Pool Tournament','The director is setting up the player list. This page updates by itself when the first matches are drawn.',toolbar())+'</main>';
   }
   var rn=function(a){var r=draft.race||1;return '<b class="rn" data-add="'+a+'">'+(a==='cap'?Math.max(r*3,4):r+a)+'</b>'};
   var err=setupError(),isDE=draft.type==='de',total=draft.players.reduce(function(a,p){return a+p.chips},0);
-  var R=ratings(),names=Object.keys(R).map(function(k){return R[k].name}).sort();
+  var R=ratings(),seen={},names=[];
+  REGULARS.concat(Object.keys(R).map(function(k){return R[k].name})).forEach(function(n){var k=nkey(n);if(!seen[k]){seen[k]=1;names.push(n)}});
+  names.sort(function(a,b){return a.localeCompare(b)});
   var rows=draft.players.map(function(p,i){
     var kn=known(p.name),auto=autoChips(p);if(!p.manual)p.chips=auto;
     var meta=kn?'Rating '+kn.rating+(kn.prov?' · new':'')+(isDE?'':' · '+(p.manual?'you set '+p.chips+' · <button class="linkish" data-act="dAuto" data-p="'+p.id+'">use '+auto+'</button>':'auto '+auto+' chips'))
