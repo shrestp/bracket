@@ -434,7 +434,7 @@ var gh=lsGet(LS_GH)||{repo:'shrestp/bracket',token:''};
 var sync={state:'idle',msg:'',sha:null,timer:null,at:0};
 var RC=null,RCkey='';
 function dbGames(db){
-  var g=[],ts=Object.keys(db.tournaments).sort(function(a,b){return (db.tournaments[a].date||0)-(db.tournaments[b].date||0)});
+  var cut=db.resetAt||0,g=[],ts=Object.keys(db.tournaments).filter(function(t){return (db.tournaments[t].date||0)>=cut}).sort(function(a,b){return (db.tournaments[a].date||0)-(db.tournaments[b].date||0)});
   ts.forEach(function(t){(db.tournaments[t].matches||[]).forEach(function(m){var i;for(i=0;i<(m.rw||1);i++)g.push([m.w,m.l]);for(i=0;i<(m.rl||0);i++)g.push([m.l,m.w])})});
   return g;
 }
@@ -473,6 +473,7 @@ function b64d(x){return decodeURIComponent(escape(atob(String(x).replace(/\s/g,'
 function ghHeaders(){var hd={'Accept':'application/vnd.github+json'};if(gh.token)hd.Authorization='Bearer '+gh.token;return hd}
 function mergeDB(remote){
   if(!remote||!remote.players)return;
+  if((remote.resetAt||0)>(DB.resetAt||0))DB.resetAt=remote.resetAt;
   Object.keys(remote.players).forEach(function(k){var a=DB.players[k],b=remote.players[k];if(!a||(b.tierAt||0)>(a.tierAt||0))DB.players[k]=b});
   Object.keys(remote.tournaments||{}).forEach(function(t){var a=DB.tournaments[t],b=remote.tournaments[t];if(!a||(b.updatedAt||0)>(a.updatedAt||0))DB.tournaments[t]=b});
   saveDB(false);
