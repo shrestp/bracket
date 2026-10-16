@@ -223,7 +223,7 @@ function canAct(){return (mode==='shared'||mode==='local')&&location.hash!=='#vi
 /* ---------- derived state ---------- */
 function derive(st){
   var P={},list=[];
-  st.players.forEach(function(p){var o=Object.assign({},p,{losses:0,wins:0,played:0,adjust:0,lastOpp:null,lastEnd:-1,vs:{},busy:null,table:null});P[p.id]=o;list.push(o)});
+  st.players.forEach(function(p,i){var o=Object.assign({},p,{losses:0,wins:0,played:0,adjust:0,lastOpp:null,lastEnd:-1,vs:{},busy:null,table:null,seed:(st.seed&&st.seed[p.id]!=null)?st.seed[p.id]:i});P[p.id]=o;list.push(o)});
   st.matches.forEach(function(m){if(m.status==='live'){if(P[m.a]){P[m.a].busy=m.id;P[m.a].table=m.table}if(P[m.b]){P[m.b].busy=m.id;P[m.b].table=m.table}}});
   st.matches.filter(function(m){return m.status==='done'}).sort(function(x,y){return x.endedSeq-y.endedSeq}).forEach(function(m){
     var w=m.winner,l=w===m.a?m.b:m.a;
@@ -242,6 +242,9 @@ function derive(st){
 
 /* ---------- the draw ---------- */
 function stays(st){return st.stay!==false}
+/* The queue: fewest matches played first, then whoever has waited longest, then a fixed draw order set at the start. */
+function qcmp(x,y){return x.played-y.played||x.lastEnd-y.lastEnd||x.seed-y.seed}
+function queue(d){return d.active.filter(function(p){return !p.busy&&!p.held}).sort(qcmp)}
 function pickChallenger(d,H,force){
   var idle=d.active.filter(function(p){return !p.busy&&p.id!==H.id});
   var free=idle.filter(function(p){return !p.held});
@@ -249,8 +252,7 @@ function pickChallenger(d,H,force){
   if(!pool.length)return null;
   var opts=pool.filter(function(p){return p.id!==H.lastOpp});
   if(!opts.length){if(force||d.active.length<=2)opts=pool;else return null}
-  var k={};opts.forEach(function(p){k[p.id]=rnd()});
-  opts.sort(function(x,y){return x.played-y.played||(H.vs[x.id]||0)-(H.vs[y.id]||0)||x.lastEnd-y.lastEnd||k[x.id]-k[y.id]});
+  opts.sort(qcmp);
   return opts[0];
 }
 function pickPair(d,force){
@@ -261,15 +263,13 @@ function pickPair(d,force){
     pool=idle.filter(function(p){return p.played-d.minPlayed<d.S.leadLimit});
     if(pool.length<2)return {reason:'lead'};
   }
-  var key={};pool.forEach(function(p){key[p.id]=rnd()});
-  var order=pool.slice().sort(function(x,y){return x.played-y.played||x.lastEnd-y.lastEnd||key[x.id]-key[y.id]});
+  var order=pool.slice().sort(qcmp);
   for(var i=0;i<order.length;i++){
     var first=order[i];
     var opps=pool.filter(function(p){return p.id!==first.id&&p.id!==first.lastOpp});
     if(!opps.length)continue;
-    var k2={};opps.forEach(function(p){k2[p.id]=rnd()});
-    opps.sort(function(x,y){return x.played-y.played||(first.vs[x.id]||0)-(first.vs[y.id]||0)||x.lastEnd-y.lastEnd||k2[x.id]-k2[y.id]});
-    return {pair:rnd()<.5?[first.id,opps[0].id]:[opps[0].id,first.id]};
+    opps.sort(qcmp);
+    return {pair:[first.id,opps[0].id]};
   }
   if(force||d.active.length<=2)return {pair:[order[0].id,order[1].id]};
   return {reason:'rematch',names:[order[0].name,order[1].name]};
@@ -445,6 +445,7 @@ function act(name,el){
       st=blankState();st.title=(draft.title||'Pool Chip Tournament').trim();st.tables=draft.tables;st.leadLimit=draft.leadLimit;
       st.players=draft.players.map(function(x){return {id:x.id,name:x.name.trim(),chips:x.chips}});
       st.phase='running';st.startedAt=Date.now();st.stay=draft.stay!==false;
+      st.seed={};st.players.forEach(function(x){st.seed[x.id]=rnd()});
       commit(normalize(st));break;
   }
 }
@@ -631,10 +632,10 @@ function renderRunning(){
   var tab=ui.tab;if(done&&tab==='tables')tab='standings';
   var body='';
   if(tab==='tables'){
-    var waiting=d.active.filter(function(p){return !p.busy&&!p.held}).map(function(p){return h(p.name)});
+    var q=queue(d);
     var away=d.alive.filter(function(p){return p.away}).map(function(p){return h(p.name)});
     body=tableGroups(d)+
-      (waiting.length?group('Up next','<div class="list"><div class="cell"><span class="grow">'+waiting.join(', ')+'</span></div></div>'):'')+
+      (q.length?group('Up next','<div class="list">'+q.map(function(p,i){return '<div class="cell"><span class="rank">'+(i+1)+'</span><span class="grow">'+h(p.name)+'</span>'+(i===0?'<span class="sec" style="color:var(--tint-text);font-weight:600">Next</span>':'')+'<span class="sec">'+p.played+' played</span></div>'}).join('')+'</div>','Called in this order: fewest matches first, then whoever has waited longest. A player never faces the person they just played.'):'')+
       (away.length?group('Away','<div class="list"><div class="cell dim"><span class="grow">'+away.join(', ')+'</span></div></div>'):'');
   }else if(tab==='standings')body=standingsHTML(d,done);
   else body=historyHTML(d);
