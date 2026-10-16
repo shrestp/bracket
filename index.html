@@ -258,11 +258,11 @@ function derive(st){
    Fargo-style scale: 100 points = 2-to-1 odds of winning a rack.
    Ratings are recomputed from every rack ever recorded (whole-history fit), so every device
    that has the same results shows the same numbers. A new player starts at their level and the
-   start counts for about 8 racks; after that their results decide. */
+   start counts for about 3 racks; after that their results decide. */
 var LS_DB='pct.db.v1', LS_GH='pct.gh.v1';
 var TIERS={b:{label:'Beginner',start:400},a:{label:'Average',start:500},s:{label:'Strong',start:600}};
 var BANDS=[[575,4],[500,5],[425,6],[-1e9,7]];
-var PROV=20;
+var PROV=5;
 function nkey(n){return String(n||'').trim().toLowerCase().replace(/\s+/g,' ')}
 function chipsFor(r){for(var i=0;i<BANDS.length;i++)if(r>=BANDS[i][0])return BANDS[i][1];return 7}
 function levelFor(r){var c=chipsFor(r);return c<=4?'Strong':c>=7?'Beginner':'Average'}
@@ -281,7 +281,7 @@ function ratings(){
   var keys=Object.keys(DB.players),R={},st={},by={},out={};
   keys.forEach(function(k){st[k]=(TIERS[DB.players[k].tier]||TIERS.a).start;R[k]=st[k];by[k]=[];out[k]={w:0,l:0}});
   dbGames(DB).forEach(function(x){if(!by[x[0]]||!by[x[1]])return;by[x[0]].push([x[1],1]);by[x[1]].push([x[0],0]);out[x[0]].w++;out[x[1]].l++});
-  var c=Math.LN2/100,prior=1/(100*100);
+  var c=Math.LN2/100,prior=1/(150*150);
   for(var it=0;it<80;it++){keys.forEach(function(k){
     var g=-(R[k]-st[k])*prior,H=-prior;
     by[k].forEach(function(o){var q=1/(1+Math.pow(2,-(R[k]-R[o[0]])/100));g+=c*(o[1]-q);H-=c*c*q*(1-q)});
