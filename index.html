@@ -447,6 +447,8 @@ var sync={state:'idle',msg:'',sha:null,timer:null,at:0};
    visit, and every change is sent there a few seconds later. The browser keeps only a copy and a to-send flag. */
 var LS_PIN='pct.pin.v1',LS_DIRTY='pct.dirty.v1';
 var srv={on:false,pin:lsGet(LS_PIN)||'',dirty:!!lsGet(LS_DIRTY),state:'idle',msg:'',at:0,timer:null,busy:false,again:false,ver:0};
+/* the server is the source of truth: with nothing waiting to send, take its copy as is */
+function srvAdopt(db){if(!db||!db.players)return;if(srv.dirty){mergeDB(db);return}DB={v:db.v||1,players:db.players||{},tournaments:db.tournaments||{}};if(db.resetAt)DB.resetAt=db.resetAt;saveDB(false)}
 function srvMark(){srv.ver++;if(!srv.dirty){srv.dirty=true;lsSet(LS_DIRTY,true)}if(srv.on)srvSchedule(3000)}
 function srvSchedule(ms){clearTimeout(srv.timer);if(srv.state!=='error')srv.state='pending';paintSync();srv.timer=setTimeout(srvPush,ms==null?3000:ms)}
 function srvPush(){
@@ -458,8 +460,8 @@ function srvPush(){
     return r.json().catch(function(){return {}}).then(function(j){
       if(r.status===401){srv.pin='';lsSet(LS_PIN,'');srv.state='badpin';srv.msg='';return}
       if(!r.ok||!j.ok)throw new Error(j.error||('The server answered '+r.status+'.'));
-      if(j.db)mergeDB(j.db);
       if(srv.ver===v){srv.dirty=false;lsSet(LS_DIRTY,false)}
+      if(j.db)srvAdopt(j.db);
       srv.state='saved';srv.at=Date.now();srv.msg='';
     });
   }).catch(function(e){srv.state='error';srv.msg=e&&e.message&&!/fetch|network|load/i.test(e.message)?e.message:'Can’t reach the server.';clearTimeout(srv.timer);srv.timer=setTimeout(srvPush,20000)})
@@ -469,10 +471,20 @@ function srvLoad(){
   if(!/^https?:$/.test(location.protocol)||typeof fetch!=='function')return Promise.reject(new Error('no server'));
   return fetch('api.php?t='+Date.now(),{cache:'no-store'}).then(function(r){if(!r.ok)throw new Error('no server');return r.json()}).then(function(j){
     if(!j||!j.ok||!j.db)throw new Error('no server');
-    srv.on=true;mergeDB(j.db);srv.state=srv.dirty?'pending':'saved';srv.at=Date.now();
+    srv.on=true;srv.pulled=Date.now();srvAdopt(j.db);srv.state=srv.dirty?'pending':'saved';srv.at=Date.now();
     if(srv.dirty)srvSchedule(800);
   });
 }
+srv.pulled=0;
+function srvRefresh(){
+  if(!srv.on)return Promise.resolve(false);
+  var before=JSON.stringify(DB);
+  return fetch('api.php?t='+Date.now(),{cache:'no-store'}).then(function(r){if(!r.ok)throw new Error('The server answered '+r.status+'.');return r.json()}).then(function(j){
+    if(!j||!j.ok||!j.db)throw new Error('Bad answer from the server.');
+    srvAdopt(j.db);srv.pulled=Date.now();if(srv.state==='error'&&!srv.dirty)srv.state='saved';return JSON.stringify(DB)!==before;
+  });
+}
+document.addEventListener('visibilitychange',function(){if(document.visibilityState==='visible'&&srv.on){srvRefresh().then(function(ch){if(ch&&(S.phase==='setup'||(ui.sheet&&ui.sheet.t==='ratings')))render()},function(){});if(srv.dirty)srvSchedule(500)}});
 window.addEventListener('online',function(){if(srv.on&&srv.dirty)srvSchedule(500)});
 window.addEventListener('beforeunload',function(e){if(srv.on&&srv.dirty&&srv.pin){e.preventDefault();e.returnValue=''}});
 var RC=null,RCkey='';
@@ -819,7 +831,7 @@ function act(name,el){
       st=normalize(st);Object.keys(st.hold||{}).forEach(function(t){if(st.hold[t]===ds.w)ui.last.table=+t});
       st.matches.forEach(function(x){if(x.status==='live'&&x.a===ds.w&&x.n>m.n)ui.last.table=x.table});
       commit(st);break;
-    case 'sheet':ui.sheet={t:ds.v,id:ds.id||null};ui.sheetAt=Date.now();render();break;
+    case 'sheet':ui.sheet={t:ds.v,id:ds.id||null};ui.sheetAt=Date.now();render();if(ds.v==='ratings'&&srv.on)srvRefresh().then(function(ch){if(ch&&ui.sheet&&ui.sheet.t==='ratings')render()},function(){});break;
     case 'race':st=clone(S);st.race=Math.max(1,Math.min(9,(st.race||1)+(+ds.d)));commit(norm(st));break;
     case 'dType':draft.type=ds.v;if(ds.v==='de'&&(draft.race||1)<2)draft.race=3;saveDraft();render();break;
     case 'deWin':
@@ -935,6 +947,7 @@ function act(name,el){
       if(added){draft.example=false;ui.paste=false}saveDraft();render();break;
     case 'dPasteToggle':ui.paste=!ui.paste;render();break;
     case 'start':
+      if(srv.on&&!(el&&el._fresh)&&Date.now()-srv.pulled>3000){saving=true;render();srvRefresh().then(null,function(){}).then(function(){saving=false;act('start',{_fresh:true})});return}
       var err=setupError();if(err){flash=err;render();return}
       st=blankState();st.title=(draft.title||'Pool Chip Tournament').trim();st.tables=draft.tables;st.leadLimit=draft.leadLimit;
       st.players=draft.players.map(function(x){var kn=known(x.name);return {id:x.id,name:kn?kn.name:x.name.trim(),key:nkey(x.name),tier:kn?kn.tier:(x.tier||'a'),chips:x.manual?x.chips:autoChips(x),manual:!!x.manual}});
@@ -1340,7 +1353,7 @@ root.addEventListener('input',function(e){
 });
 root.addEventListener('change',function(e){
   var t=e.target;
-  if(t.id==='restore-in'&&t.files&&t.files[0]){var fr=new FileReader();fr.onload=function(){try{var j=JSON.parse(fr.result);if(!j||!j.players)throw 0;mergeDB(j);saveDB(true);flash='Backup restored. Hub Ratings include it now.';dbChanged()}catch(x){flash='That file isn’t a Hub Ratings backup.';render()}};fr.readAsText(t.files[0]);return}
+  if(t.id==='restore-in'&&t.files&&t.files[0]){var fr=new FileReader();fr.onload=function(){try{var j=JSON.parse(fr.result);if(!j||!j.players)throw 0;mergeDB(j);saveDB(true);srvMark();flash='Backup restored. Hub Ratings include it now.';dbChanged()}catch(x){flash='That file isn’t a Hub Ratings backup.';render()}};fr.readAsText(t.files[0]);return}
   if(t.name==='pace'){draft.leadLimit=+t.value;saveDraft();render()}
   else if(t.id==='d-tables'){draft.tables=Math.min(12,Math.max(1,parseInt(t.value,10)||1));saveDraft();var ws=document.getElementById('d-worst');if(ws)ws.innerHTML=closeOpts(draft.worst==null?2:+draft.worst,draft.tables)}
   else if(t.id==='d-race'){draft.race=Math.min(9,Math.max(1,parseInt(t.value,10)||1));saveDraft()}
