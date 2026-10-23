@@ -51,6 +51,11 @@ button:not(:disabled):active{filter:brightness(1.15);transform:scale(.97)}
 .version-badge{display:inline-grid;place-items:center;min-height:1.45rem;margin-left:.45rem;border:1px solid var(--line);border-radius:999px;background:var(--panel);color:#b9c2d2;font-size:.72rem;letter-spacing:0;padding:.08rem .48rem;text-transform:none;vertical-align:middle}
 :root[data-theme="light"] .version-badge{color:var(--muted)}
 .version-badge.live{border-color:#1f6f46;color:#bbf7d0}
+.lock{min-height:80vh;display:grid;place-items:center}
+.lock-card{display:grid;gap:.8rem;width:min(380px,100%);border:1px solid var(--line);border-radius:10px;background:var(--panel);padding:1.5rem}
+.lock-card h1{margin:0;color:var(--strong);font-size:2rem}.lock-card .eyebrow{margin:0}.lock-card p{margin:0}
+.lock-card .tin{margin:0;font-size:1.25rem;letter-spacing:.2em;text-align:center}
+.lock-err{color:#fca5a5;font-weight:700}:root[data-theme="light"] .lock-err{color:#b91c1c}
 .version-badge.warn{border-color:#b91c1c;color:#fecaca;background:rgba(220,38,38,.14)}
 :root[data-theme="light"] .version-badge.warn{color:#b91c1c}
 .savebar{display:flex;align-items:center;justify-content:space-between;gap:.75rem;flex-wrap:wrap;margin:1rem 0 0;border:1px solid #b91c1c;border-radius:7px;background:rgba(220,38,38,.12);color:#fecaca;padding:.65rem .75rem;font-size:.92rem;font-weight:600}
@@ -458,7 +463,7 @@ function srvPush(){
   srv.busy=true;srv.state='saving';paintSync();var v=srv.ver;
   fetch('api.php',{method:'POST',headers:{'Content-Type':'application/json'},cache:'no-store',body:JSON.stringify({pin:srv.pin,db:DB})}).then(function(r){
     return r.json().catch(function(){return {}}).then(function(j){
-      if(r.status===401){srv.pin='';lsSet(LS_PIN,'');srv.state='badpin';srv.msg='';return}
+      if(r.status===401){srv.pin='';lsSet(LS_PIN,'');srv.state='badpin';srv.msg='';srv.locked=true;srv.lockMsg='The PIN changed. Enter the new one. Your results are kept on this device and will save after.';render();return}
       if(!r.ok||!j.ok)throw new Error(j.error||('The server answered '+r.status+'.'));
       if(srv.ver===v){srv.dirty=false;lsSet(LS_DIRTY,false)}
       if(j.db)srvAdopt(j.db);
@@ -469,17 +474,38 @@ function srvPush(){
 }
 function srvLoad(){
   if(!/^https?:$/.test(location.protocol)||typeof fetch!=='function')return Promise.reject(new Error('no server'));
-  return fetch('api.php?t='+Date.now(),{cache:'no-store'}).then(function(r){if(!r.ok)throw new Error('no server');return r.json()}).then(function(j){
-    if(!j||!j.ok||!j.db)throw new Error('no server');
-    srv.on=true;srv.pulled=Date.now();srvAdopt(j.db);srv.state=srv.dirty?'pending':'saved';srv.at=Date.now();
-    if(srv.dirty)srvSchedule(800);
+  srv.checking=true;
+  return fetch('api.php?check&t='+Date.now(),{cache:'no-store'}).then(function(r){if(!r.ok)throw new Error('no server');return r.json()}).then(function(c){
+    if(!c||!c.ok||c.php==null)throw new Error('no server');
+    srv.on=true;
+    if(!srv.pin){srv.locked=true;srv.checking=false;return}
+    return srvOpen(srv.pin);
+  }).then(function(){srv.checking=false},function(e){srv.checking=false;if(!srv.on)throw e;srv.lockMsg=e.message||'Can’t reach the server.';srv.locked=true});
+}
+/* open the site with a PIN: the server only hands out ratings to the right PIN */
+function srvOpen(pin){
+  return fetch('api.php?t='+Date.now(),{cache:'no-store',headers:{'X-Pin':pin}}).then(function(r){
+    return r.json().catch(function(){return {}}).then(function(j){
+      if(r.status===401){srv.pin='';lsSet(LS_PIN,'');srv.locked=true;srv.lockMsg='Wrong PIN. Try again.';return}
+      if(!r.ok||!j.ok||!j.db)throw new Error(j.error||('The server answered '+r.status+'.'));
+      srv.pin=pin;lsSet(LS_PIN,pin);srv.locked=false;srv.lockMsg='';
+      srv.pulled=Date.now();srvAdopt(j.db);srv.state=srv.dirty?'pending':'saved';srv.at=Date.now();
+      if(srv.dirty)srvSchedule(800);
+    });
   });
+}
+function lockHTML(){
+  if(srv.checking)return '<main class="shell lock"><p class="muted">Loading…</p></main>';
+  return '<main class="shell lock"><form class="lock-card" data-lock><p class="eyebrow">Pool tournament runner</p><h1>Enter PIN</h1><p class="muted">Type the director PIN to open the tournament. This device remembers it.</p>'+
+    '<input class="tin" id="lock-pin" type="password" inputmode="numeric" autocomplete="current-password" placeholder="PIN" autofocus>'+
+    (srv.lockMsg?'<p class="lock-err" role="alert">'+h(srv.lockMsg)+'</p>':'')+
+    '<button class="primary" type="submit" data-act="unlock">Open</button></form></main>';
 }
 srv.pulled=0;
 function srvRefresh(){
   if(!srv.on)return Promise.resolve(false);
   var before=JSON.stringify(DB);
-  return fetch('api.php?t='+Date.now(),{cache:'no-store'}).then(function(r){if(!r.ok)throw new Error('The server answered '+r.status+'.');return r.json()}).then(function(j){
+  return fetch('api.php?t='+Date.now(),{cache:'no-store',headers:{'X-Pin':srv.pin}}).then(function(r){if(r.status===401){srv.pin='';lsSet(LS_PIN,'');srv.locked=true;srv.lockMsg='The PIN changed. Enter the new one.';render();throw new Error('locked')}if(!r.ok)throw new Error('The server answered '+r.status+'.');return r.json()}).then(function(j){
     if(!j||!j.ok||!j.db)throw new Error('Bad answer from the server.');
     srvAdopt(j.db);srv.pulled=Date.now();if(srv.state==='error'&&!srv.dirty)srv.state='saved';return JSON.stringify(DB)!==before;
   });
@@ -870,7 +896,8 @@ function act(name,el){
     case 'ghSync':if(canSync())ghPush();else ghPull().then(render,function(e){sync.state='error';sync.msg=e.message;render()});break;
     case 'backup':backupDB();break;
     case 'pinSave':var pi=document.getElementById('pin-in')||document.getElementById('s-pin');var pv=pi?pi.value.trim():'';if(!pv){if(pi)pi.focus();break}srv.pin=pv;lsSet(LS_PIN,pv);srv.state='pending';if(!srv.dirty){srv.dirty=true;lsSet(LS_DIRTY,true)}ui._keepSheet=ui.sheet;render();srvSchedule(100);break;
-    case 'pinForget':srv.pin='';lsSet(LS_PIN,'');render();break;
+    case 'pinForget':srv.pin='';lsSet(LS_PIN,'');srv.locked=true;srv.lockMsg='';ui.sheet=null;render();break;
+    case 'unlock':var lpi=document.getElementById('lock-pin'),lv=lpi?lpi.value.trim():'';if(!lv){if(lpi)lpi.focus();break}var lb=root.querySelector('[data-act=unlock]');if(lb){lb.disabled=true;lb.textContent='Checking…'}srvOpen(lv).then(null,function(e){srv.lockMsg=e.message||'Can’t reach the server.'}).then(render);break;
     case 'srvNow':srvSchedule(0);break;
     case 'restore':var fi=document.getElementById('restore-in');if(fi)fi.click();break;
     case 'ghOff':gh.token='';lsSet(LS_GH,gh);sync.state='idle';render();break;
@@ -1027,7 +1054,7 @@ function settingsSheet(){
         '<div class="sheet-row" style="display:block"><span style="display:block;margin-bottom:.5rem">Draw pace</span>'+seg('leadSet',[[1,'Strict'],[2,'Balanced'],[99,'Fastest']],S.leadLimit)+'</div><p>'+(stays(S)?'The winner keeps the table and plays the next challenger. ':'')+paceText(S.leadLimit)+'</p>')+'</div>';
   }
   if(mode==='local'&&srv.on){
-    out+='<div class="sheet-sec"><h3>Saving online</h3>'+(srv.pin?'<div class="sheet-row"><span>Director PIN saved on this device</span><button class="small-btn" data-act="pinForget">Forget</button></div>':'<div class="sheet-row"><input class="tin" id="s-pin" type="password" inputmode="numeric" autocomplete="off" placeholder="Director PIN"><button class="primary" data-act="pinSave">Save</button></div>')+
+    out+='<div class="sheet-sec"><h3>Saving online</h3>'+(srv.pin?'<div class="sheet-row"><span>Director PIN saved on this device</span><button class="small-btn" data-act="pinForget">Lock This Device</button></div>':'<div class="sheet-row"><input class="tin" id="s-pin" type="password" inputmode="numeric" autocomplete="off" placeholder="Director PIN"><button class="primary" data-act="pinSave">Save</button></div>')+
       '<p><span id="sync-line">'+syncText()+'</span> Other devices can view Hub Ratings without the PIN.</p></div>';
   }
   if(mode==='local'&&!srv.on){
@@ -1326,6 +1353,7 @@ function renderRunning(){
 
 var lastTimer=null,bumpPrev={};
 function render(){
+  if(srv.locked||srv.checking){root.innerHTML=lockHTML();var lp=document.getElementById('lock-pin');if(lp)lp.focus();return}
   var html=S.phase==='setup'?renderSetup():renderRunning();
   var d=S.phase==='setup'?null:derive(S);
   root.innerHTML=html+(ui.sheet?sheetHTML(d||derive(S)):'')+(saving?'<div class="veil" aria-hidden="true"></div>':'');
@@ -1369,6 +1397,7 @@ root.addEventListener('keydown',function(e){
   if(e.key==='Enter'&&(e.target.id==='pin-in'||e.target.id==='s-pin')){e.preventDefault();act('pinSave',e.target)}
   if(e.key==='Escape'&&ui.sheet){ui.sheet=null;render()}
 });
+root.addEventListener('submit',function(e){e.preventDefault()});
 window.addEventListener('hashchange',render);
 setInterval(function(){root.querySelectorAll('.elapsed').forEach(function(el){el.textContent=mins(+el.dataset.t)})},30000);
 
