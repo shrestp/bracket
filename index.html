@@ -51,6 +51,12 @@ button:not(:disabled):active{filter:brightness(1.15);transform:scale(.97)}
 .version-badge{display:inline-grid;place-items:center;min-height:1.45rem;margin-left:.45rem;border:1px solid var(--line);border-radius:999px;background:var(--panel);color:#b9c2d2;font-size:.72rem;letter-spacing:0;padding:.08rem .48rem;text-transform:none;vertical-align:middle}
 :root[data-theme="light"] .version-badge{color:var(--muted)}
 .version-badge.live{border-color:#1f6f46;color:#bbf7d0}
+.version-badge.warn{border-color:#b91c1c;color:#fecaca;background:rgba(220,38,38,.14)}
+:root[data-theme="light"] .version-badge.warn{color:#b91c1c}
+.savebar{display:flex;align-items:center;justify-content:space-between;gap:.75rem;flex-wrap:wrap;margin:1rem 0 0;border:1px solid #b91c1c;border-radius:7px;background:rgba(220,38,38,.12);color:#fecaca;padding:.65rem .75rem;font-size:.92rem;font-weight:600}
+.savebar p{margin:0!important;flex:1 1 260px;line-height:1.45;color:inherit!important;font-size:inherit!important;max-width:none!important}.savebar b{margin-right:.4rem;color:#fff}
+.savebar div{display:flex;gap:.5rem;flex-wrap:wrap}
+:root[data-theme="light"] .savebar{color:#991b1b}:root[data-theme="light"] .savebar b{color:#7f1d1d}
 .version-badge.test{border-color:#b45309;color:#fdba74;background:rgba(249,115,22,.12)}
 :root[data-theme="light"] .version-badge.test{color:#c2410c}
 .testbar{margin:1rem 0 0;border:1px dashed #b45309;border-radius:7px;background:rgba(249,115,22,.08);color:#fdba74;font-weight:600;padding:.6rem .75rem;font-size:.92rem}
@@ -513,7 +519,14 @@ function syncText(){
   if(sync.state==='saved')return 'Hub Ratings saved to GitHub '+mins(sync.at).replace('just started','just now')+(sync.at&&Date.now()-sync.at>=60000?' ago':'')+'.';
   return 'Hub Ratings sync with GitHub ('+h(gh.repo)+').';
 }
-function paintSync(){var el=document.getElementById('sync-line');if(el)el.textContent=syncText()}
+function paintSync(){var el=document.getElementById('sync-line');if(el)el.textContent=syncText();var sb=document.getElementById('savebar'),nb=saveBar();if(sb)sb.outerHTML=nb||'<span id="savebar"></span>'}
+function saveBar(){
+  if(mode!=='local'||location.hash==='#view')return '';
+  var msg=!gh.token?'<b>Not backed up</b> Results are saved in this browser only. Clearing history deletes them. Connect GitHub in Settings or download a backup.':sync.state==='error'?'<b>GitHub save failed</b> '+h(sync.msg)+' Results are only in this browser until this is fixed.':'';
+  if(!msg)return '';
+  return '<div class="savebar" id="savebar" role="alert"><p>'+msg+'</p><div><button class="small-btn" data-act="sheet" data-v="settings">'+(gh.token?'Fix in Settings':'Connect GitHub')+'</button><button class="small-btn" data-act="backup">Download Backup</button></div></div>';
+}
+function backupDB(){try{var b=new Blob([JSON.stringify(DB,null,1)],{type:'application/json'}),a=document.createElement('a'),d=new Date();a.href=URL.createObjectURL(b);a.download='hub-ratings-'+d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')+'.json';document.body.appendChild(a);a.click();setTimeout(function(){URL.revokeObjectURL(a.href);a.remove()},1000)}catch(e){flash='Could not make the backup file.';render()}}
 
 /* ---------- the draw ---------- */
 function stays(st){return st.stay!==false}
@@ -799,6 +812,8 @@ function act(name,el){
       lsSet(LS_GH,gh);sync.state='saving';render();
       ghPull().then(function(){sync.state='idle';ghPush()}).catch(function(e){sync.state='error';sync.msg=e.message;render()});break;
     case 'ghSync':if(canSync())ghPush();else ghPull().then(render,function(e){sync.state='error';sync.msg=e.message;render()});break;
+    case 'backup':backupDB();break;
+    case 'restore':var fi=document.getElementById('restore-in');if(fi)fi.click();break;
     case 'ghOff':gh.token='';lsSet(LS_GH,gh);sync.state='idle';render();break;
     case 'closeSheet':var sh=root.querySelector('.sheet'),sc=root.querySelector('.scrim');
       if(sh&&!sh.classList.contains('out')){root.classList.remove('still');sh.classList.add('out');if(sc)sc.classList.add('out');setTimeout(function(){ui.sheet=null;render()},170)}else{ui.sheet=null;render()}break;
@@ -907,11 +922,11 @@ function modeText(){
 function badge(){
   return badge0()+(S&&S.test?' <span class="version-badge test">Testing</span>':'');
 }
-function testNote(){return S&&S.test?'<p class="testbar" role="status"><b>Testing mode</b> Results here don’t count toward Hub Ratings. Turn it off in Settings.</p>':''}
+function testNote(){return (saveBar()||'<span id="savebar"></span>')+(S&&S.test?'<p class="testbar" role="status"><b>Testing mode</b> Results here don’t count toward Hub Ratings. Turn it off in Settings.</p>':'')}
 function badge0(){
   if(saving)return '<span class="version-badge">Saving…</span>';
   if(mode==='shared'&&location.hash!=='#view')return '<span class="version-badge live">Live</span>';
-  if(mode==='local')return '<span class="version-badge">This device</span>';
+  if(mode==='local')return gh.token&&sync.state!=='error'?'<span class="version-badge live">Saved to GitHub</span>':'<span class="version-badge warn">Not backed up</span>';
   if(mode==='connecting')return '<span class="version-badge">Connecting</span>';
   return '<span class="version-badge">View only</span>';
 }
@@ -968,7 +983,7 @@ function actionSheet(title,msg,rows){
 function sheetHTML(d){
   var s=ui.sheet;if(!s)return '';
   if(s.t==='settings')return settingsSheet();
-  if(s.t==='ratings')return '<div class="scrim" data-act="closeSheet"></div><div class="sheet wide-sheet" role="dialog" aria-modal="true" aria-label="Hub Ratings"><div class="sheet-head"><h2>Hub Ratings</h2><button data-act="closeSheet">Done</button></div>'+(flash?'<p class="flash" style="margin:0">'+h(flash)+'</p>':'')+ratingsHTML(true)+(canAct()?'<div class="sheet-sec"><h3>Add a player with a starting Hub Rating</h3><div class="sheet-row"><input class="tin" id="nr-name" placeholder="Name" list="known-names2" autocomplete="off"><input class="tin" id="nr-val" type="number" min="100" max="1000" inputmode="numeric" placeholder="500" style="max-width:96px"><button class="primary" data-act="addRated">Add</button></div><datalist id="known-names2">'+REGULARS.filter(function(n){return !DB.players[nkey(n)]}).map(function(n){return '<option value="'+h(n)+'">'}).join('')+'</datalist></div>':'')+'</div>';
+  if(s.t==='ratings')return '<div class="scrim" data-act="closeSheet"></div><div class="sheet wide-sheet" role="dialog" aria-modal="true" aria-label="Hub Ratings"><div class="sheet-head"><h2>Hub Ratings</h2><button data-act="closeSheet">Done</button></div>'+(flash?'<p class="flash" style="margin:0">'+h(flash)+'</p>':'')+ratingsHTML(true)+(canAct()?(mode==='local'?'<div class="sheet-sec"><h3>Backup</h3><div class="choices" style="grid-template-columns:1fr 1fr"><button data-act="backup">Download Backup</button><button data-act="restore">Restore Backup</button></div><input type="file" id="restore-in" accept="application/json,.json" hidden><p>A backup file holds every result and starting rating. Restoring adds it to what is here and never removes anything.</p></div>':'')+'<div class="sheet-sec"><h3>Add a player with a starting Hub Rating</h3><div class="sheet-row"><input class="tin" id="nr-name" placeholder="Name" list="known-names2" autocomplete="off"><input class="tin" id="nr-val" type="number" min="100" max="1000" inputmode="numeric" placeholder="500" style="max-width:96px"><button class="primary" data-act="addRated">Add</button></div><datalist id="known-names2">'+REGULARS.filter(function(n){return !DB.players[nkey(n)]}).map(function(n){return '<option value="'+h(n)+'">'}).join('')+'</datalist></div>':'')+'</div>';
   if(!canAct())return '';
   if(s.t==='reset')return actionSheet(S.phase==='done'?'Start a new tournament?':'Reset this tournament?','Every result is cleared. Your player list is kept so you can edit it. Ratings keep everything already played.',[{label:S.phase==='done'?'New Tournament':'Reset Tournament',cls:'danger',attrs:'data-act="reset"'}]);
   if(s.t==='cancel'){var m=S.matches.find(function(x){return x.id===s.id});if(!m)return '';
@@ -1273,6 +1288,7 @@ root.addEventListener('input',function(e){
 });
 root.addEventListener('change',function(e){
   var t=e.target;
+  if(t.id==='restore-in'&&t.files&&t.files[0]){var fr=new FileReader();fr.onload=function(){try{var j=JSON.parse(fr.result);if(!j||!j.players)throw 0;mergeDB(j);saveDB(true);flash='Backup restored. Hub Ratings include it now.';dbChanged()}catch(x){flash='That file isn’t a Hub Ratings backup.';render()}};fr.readAsText(t.files[0]);return}
   if(t.name==='pace'){draft.leadLimit=+t.value;saveDraft();render()}
   else if(t.id==='d-tables'){draft.tables=Math.min(12,Math.max(1,parseInt(t.value,10)||1));saveDraft();var ws=document.getElementById('d-worst');if(ws)ws.innerHTML=closeOpts(draft.worst==null?2:+draft.worst,draft.tables)}
   else if(t.id==='d-race'){draft.race=Math.min(9,Math.max(1,parseInt(t.value,10)||1));saveDraft()}
