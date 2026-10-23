@@ -484,7 +484,7 @@ function srvLoad(){
 }
 /* open the site with a PIN: the server only hands out ratings to the right PIN */
 function srvOpen(pin){
-  return fetch('api.php?t='+Date.now(),{cache:'no-store',headers:{'X-Pin':pin}}).then(function(r){
+  return fetch('api.php',{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json'},body:JSON.stringify({pin:pin})}).then(function(r){
     return r.json().catch(function(){return {}}).then(function(j){
       if(r.status===401){srv.pin='';lsSet(LS_PIN,'');srv.locked=true;srv.lockMsg='Wrong PIN. Try again.';return}
       if(!r.ok||!j.ok||!j.db)throw new Error(j.error||('The server answered '+r.status+'.'));
@@ -505,7 +505,7 @@ srv.pulled=0;
 function srvRefresh(){
   if(!srv.on)return Promise.resolve(false);
   var before=JSON.stringify(DB);
-  return fetch('api.php?t='+Date.now(),{cache:'no-store',headers:{'X-Pin':srv.pin}}).then(function(r){if(r.status===401){srv.pin='';lsSet(LS_PIN,'');srv.locked=true;srv.lockMsg='The PIN changed. Enter the new one.';render();throw new Error('locked')}if(!r.ok)throw new Error('The server answered '+r.status+'.');return r.json()}).then(function(j){
+  return fetch('api.php',{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json'},body:JSON.stringify({pin:srv.pin})}).then(function(r){if(r.status===401){srv.pin='';lsSet(LS_PIN,'');srv.locked=true;srv.lockMsg='The PIN changed. Enter the new one.';render();throw new Error('locked')}if(!r.ok)throw new Error('The server answered '+r.status+'.');return r.json()}).then(function(j){
     if(!j||!j.ok||!j.db)throw new Error('Bad answer from the server.');
     srvAdopt(j.db);srv.pulled=Date.now();if(srv.state==='error'&&!srv.dirty)srv.state='saved';return JSON.stringify(DB)!==before;
   });
