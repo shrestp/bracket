@@ -443,6 +443,38 @@ function tierFromChips(c){return c<=4?'s':c>=7?'b':'a'}
 var DB=(function(){var x=lsGet(LS_DB);return x&&x.players?x:{v:1,players:{},tournaments:{}}})();
 var gh=lsGet(LS_GH)||{repo:'shrestp/bracket',token:''};
 var sync={state:'idle',msg:'',sha:null,timer:null,at:0};
+/* server saving (api.php next to this page, e.g. on your own hosting): ratings load from the server on every
+   visit, and every change is sent there a few seconds later. The browser keeps only a copy and a to-send flag. */
+var LS_PIN='pct.pin.v1',LS_DIRTY='pct.dirty.v1';
+var srv={on:false,pin:lsGet(LS_PIN)||'',dirty:!!lsGet(LS_DIRTY),state:'idle',msg:'',at:0,timer:null,busy:false,again:false,ver:0};
+function srvMark(){srv.ver++;if(!srv.dirty){srv.dirty=true;lsSet(LS_DIRTY,true)}if(srv.on)srvSchedule(3000)}
+function srvSchedule(ms){clearTimeout(srv.timer);if(srv.state!=='error')srv.state='pending';paintSync();srv.timer=setTimeout(srvPush,ms==null?3000:ms)}
+function srvPush(){
+  if(!srv.on||!srv.dirty)return;
+  if(!srv.pin){srv.state='needpin';paintSync();return}
+  if(srv.busy){srv.again=true;return}
+  srv.busy=true;srv.state='saving';paintSync();var v=srv.ver;
+  fetch('api.php',{method:'POST',headers:{'Content-Type':'application/json'},cache:'no-store',body:JSON.stringify({pin:srv.pin,db:DB})}).then(function(r){
+    return r.json().catch(function(){return {}}).then(function(j){
+      if(r.status===401){srv.pin='';lsSet(LS_PIN,'');srv.state='badpin';srv.msg='';return}
+      if(!r.ok||!j.ok)throw new Error(j.error||('The server answered '+r.status+'.'));
+      if(j.db)mergeDB(j.db);
+      if(srv.ver===v){srv.dirty=false;lsSet(LS_DIRTY,false)}
+      srv.state='saved';srv.at=Date.now();srv.msg='';
+    });
+  }).catch(function(e){srv.state='error';srv.msg=e&&e.message&&!/fetch|network|load/i.test(e.message)?e.message:'Can’t reach the server.';clearTimeout(srv.timer);srv.timer=setTimeout(srvPush,20000)})
+  .then(function(){srv.busy=false;paintSync();if(srv.again){srv.again=false;if(srv.dirty)srvSchedule(500)}else if(srv.dirty&&srv.state==='saved')srvSchedule(500)});
+}
+function srvLoad(){
+  if(!/^https?:$/.test(location.protocol)||typeof fetch!=='function')return Promise.reject(new Error('no server'));
+  return fetch('api.php?t='+Date.now(),{cache:'no-store'}).then(function(r){if(!r.ok)throw new Error('no server');return r.json()}).then(function(j){
+    if(!j||!j.ok||!j.db)throw new Error('no server');
+    srv.on=true;mergeDB(j.db);srv.state=srv.dirty?'pending':'saved';srv.at=Date.now();
+    if(srv.dirty)srvSchedule(800);
+  });
+}
+window.addEventListener('online',function(){if(srv.on&&srv.dirty)srvSchedule(500)});
+window.addEventListener('beforeunload',function(e){if(srv.on&&srv.dirty&&srv.pin){e.preventDefault();e.returnValue=''}});
 var RC=null,RCkey='';
 function dbGames(db){
   var cut=db.resetAt||0,g=[],ts=Object.keys(db.tournaments).filter(function(t){return (db.tournaments[t].date||0)>=cut}).sort(function(a,b){return (db.tournaments[a].date||0)-(db.tournaments[b].date||0)});
@@ -477,8 +509,8 @@ function recordTournament(st){
   saveDB(true);
 }
 function dbChanged(){if(mode==='shared'&&canAct()){var st=clone(S);ui._keepSheet=ui.sheet;commit(st)}else render()}
-function saveDB(push){lsSet(LS_DB,DB);RC=null;if(push&&canSync())schedulePush()}
-function canSync(){return mode==='local'&&!!gh.token&&!!gh.repo}
+function saveDB(push){var before=lsGet(LS_DB);lsSet(LS_DB,DB);RC=null;if(push&&JSON.stringify(before)!==JSON.stringify(DB))srvMark();if(push&&canSync())schedulePush()}
+function canSync(){return mode==='local'&&!srv.on&&!!gh.token&&!!gh.repo}
 function ghURL(){return 'https://api.github.com/repos/'+gh.repo+'/contents/ratings.json'}
 function b64e(x){return btoa(unescape(encodeURIComponent(x)))}
 function b64d(x){return decodeURIComponent(escape(atob(String(x).replace(/\s/g,''))))}
@@ -512,6 +544,12 @@ function ghPush(retry){
   }).catch(function(e){sync.state='error';sync.msg=e&&e.message||'Could not reach GitHub.';paintSync()});
 }
 function syncText(){
+  if(srv.on&&mode==='local'){
+    if(srv.state==='needpin'||srv.state==='badpin'||(!srv.pin&&srv.dirty))return srv.state==='badpin'?'That PIN was wrong. Enter the director PIN to save results.':'Enter the director PIN to save results.';
+    if(srv.state==='error')return srv.msg+' Results are waiting on this device and will send by themselves.';
+    if(srv.dirty)return 'Saving Hub Ratings…';
+    return 'Hub Ratings are saved online and load from there on every device.';
+  }
   if(mode==='shared'||mode==='readonly')return 'Hub Ratings are saved with this page.';
   if(!gh.token)return 'Hub Ratings are saved on this phone only. Connect GitHub in Settings to keep them in the repo.';
   if(sync.state==='saving'||sync.state==='pending')return 'Saving Hub Ratings to GitHub…';
@@ -519,9 +557,15 @@ function syncText(){
   if(sync.state==='saved')return 'Hub Ratings saved to GitHub '+mins(sync.at).replace('just started','just now')+(sync.at&&Date.now()-sync.at>=60000?' ago':'')+'.';
   return 'Hub Ratings sync with GitHub ('+h(gh.repo)+').';
 }
-function paintSync(){var el=document.getElementById('sync-line');if(el)el.textContent=syncText();var sb=document.getElementById('savebar'),nb=saveBar();if(sb)sb.outerHTML=nb||'<span id="savebar"></span>'}
+function paintSync(){var el=document.getElementById('sync-line');if(el)el.textContent=syncText();var sb=document.getElementById('savebar'),nb=saveBar()||'<span id="savebar"></span>';if(sb&&sb.outerHTML!==nb&&!(document.activeElement&&document.activeElement.id==='pin-in'&&nb.indexOf('pin-in')>=0))sb.outerHTML=nb;var bg=document.getElementById('syncbadge');if(bg&&srv.on&&!saving){var t=document.createElement('span');t.innerHTML=badge0();if(t.firstChild&&bg.outerHTML!==t.firstChild.outerHTML)bg.outerHTML=t.firstChild.outerHTML}}
 function saveBar(){
   if(mode!=='local'||location.hash==='#view')return '';
+  if(srv.on){
+    var need=srv.state==='needpin'||srv.state==='badpin'||(!srv.pin&&srv.dirty);
+    if(need)return '<div class="savebar" id="savebar" role="alert"><p><b>'+(srv.state==='badpin'?'Wrong PIN':'Not saved yet')+'</b> Enter the director PIN so results save online.</p><div><input class="tin" id="pin-in" type="password" inputmode="numeric" autocomplete="off" placeholder="PIN" style="width:110px;margin:0;padding:.42rem .6rem"><button class="small-btn" data-act="pinSave">Save</button></div></div>';
+    if(srv.state==='error')return '<div class="savebar" id="savebar" role="alert"><p><b>Waiting to save</b> '+h(srv.msg)+' Results are kept on this device and will send by themselves.</p><div><button class="small-btn" data-act="srvNow">Try Now</button><button class="small-btn" data-act="backup">Download Backup</button></div></div>';
+    return '';
+  }
   var msg=!gh.token?'<b>Not backed up</b> Results are saved in this browser only. Clearing history deletes them. Connect GitHub in Settings or download a backup.':sync.state==='error'?'<b>GitHub save failed</b> '+h(sync.msg)+' Results are only in this browser until this is fixed.':'';
   if(!msg)return '';
   return '<div class="savebar" id="savebar" role="alert"><p>'+msg+'</p><div><button class="small-btn" data-act="sheet" data-v="settings">'+(gh.token?'Fix in Settings':'Connect GitHub')+'</button><button class="small-btn" data-act="backup">Download Backup</button></div></div>';
@@ -813,6 +857,9 @@ function act(name,el){
       ghPull().then(function(){sync.state='idle';ghPush()}).catch(function(e){sync.state='error';sync.msg=e.message;render()});break;
     case 'ghSync':if(canSync())ghPush();else ghPull().then(render,function(e){sync.state='error';sync.msg=e.message;render()});break;
     case 'backup':backupDB();break;
+    case 'pinSave':var pi=document.getElementById('pin-in')||document.getElementById('s-pin');var pv=pi?pi.value.trim():'';if(!pv){if(pi)pi.focus();break}srv.pin=pv;lsSet(LS_PIN,pv);srv.state='pending';if(!srv.dirty){srv.dirty=true;lsSet(LS_DIRTY,true)}ui._keepSheet=ui.sheet;render();srvSchedule(100);break;
+    case 'pinForget':srv.pin='';lsSet(LS_PIN,'');render();break;
+    case 'srvNow':srvSchedule(0);break;
     case 'restore':var fi=document.getElementById('restore-in');if(fi)fi.click();break;
     case 'ghOff':gh.token='';lsSet(LS_GH,gh);sync.state='idle';render();break;
     case 'closeSheet':var sh=root.querySelector('.sheet'),sc=root.querySelector('.scrim');
@@ -926,6 +973,7 @@ function testNote(){return (saveBar()||'<span id="savebar"></span>')+(S&&S.test?
 function badge0(){
   if(saving)return '<span class="version-badge">Saving…</span>';
   if(mode==='shared'&&location.hash!=='#view')return '<span class="version-badge live">Live</span>';
+  if(mode==='local'&&srv.on)return srv.state==='error'||srv.state==='needpin'||srv.state==='badpin'||(!srv.pin&&srv.dirty)?'<span class="version-badge warn" id="syncbadge">Not saved</span>':srv.dirty?'<span class="version-badge" id="syncbadge">Saving…</span>':'<span class="version-badge live" id="syncbadge">Saved online</span>';
   if(mode==='local')return gh.token&&sync.state!=='error'?'<span class="version-badge live">Saved to GitHub</span>':'<span class="version-badge warn">Not backed up</span>';
   if(mode==='connecting')return '<span class="version-badge">Connecting</span>';
   return '<span class="version-badge">View only</span>';
@@ -965,7 +1013,11 @@ function settingsSheet(){
         toggle('stay',stays(S),'Winner stays on table')+
         '<div class="sheet-row" style="display:block"><span style="display:block;margin-bottom:.5rem">Draw pace</span>'+seg('leadSet',[[1,'Strict'],[2,'Balanced'],[99,'Fastest']],S.leadLimit)+'</div><p>'+(stays(S)?'The winner keeps the table and plays the next challenger. ':'')+paceText(S.leadLimit)+'</p>')+'</div>';
   }
-  if(mode==='local'){
+  if(mode==='local'&&srv.on){
+    out+='<div class="sheet-sec"><h3>Saving online</h3>'+(srv.pin?'<div class="sheet-row"><span>Director PIN saved on this device</span><button class="small-btn" data-act="pinForget">Forget</button></div>':'<div class="sheet-row"><input class="tin" id="s-pin" type="password" inputmode="numeric" autocomplete="off" placeholder="Director PIN"><button class="primary" data-act="pinSave">Save</button></div>')+
+      '<p><span id="sync-line">'+syncText()+'</span> Other devices can view Hub Ratings without the PIN.</p></div>';
+  }
+  if(mode==='local'&&!srv.on){
     out+='<div class="sheet-sec"><h3>Hub Ratings on GitHub</h3>'+
       '<label class="flabel" style="margin:0">Repository<input class="tin" id="gh-repo" value="'+h(gh.repo||'')+'" placeholder="owner/repo" autocapitalize="off" autocomplete="off" spellcheck="false" style="margin-top:.35rem"></label>'+
       '<label class="flabel" style="margin:0">Token<input class="tin" id="gh-token" type="password" placeholder="'+(gh.token?'Saved on this phone':'Paste a GitHub token')+'" autocomplete="off" style="margin-top:.35rem"></label>'+
@@ -1301,6 +1353,7 @@ root.addEventListener('change',function(e){
 });
 root.addEventListener('keydown',function(e){
   if(e.key==='Enter'&&(e.target.id==='new-name'||e.target.id==='new-chips')){e.preventDefault();act('dAdd',e.target)}
+  if(e.key==='Enter'&&(e.target.id==='pin-in'||e.target.id==='s-pin')){e.preventDefault();act('pinSave',e.target)}
   if(e.key==='Escape'&&ui.sheet){ui.sheet=null;render()}
 });
 window.addEventListener('hashchange',render);
@@ -1309,7 +1362,7 @@ setInterval(function(){root.querySelectorAll('.elapsed').forEach(function(el){el
 /* ---------- boot ---------- */
 function goLocal(){
   mode='local';
-  ghPull().then(function(){render()},function(e){if(gh.token){sync.state='error';sync.msg=e.message;render()}});
+  srvLoad().then(function(){render()},function(){ghPull().then(function(){render()},function(e){if(gh.token){sync.state='error';sync.msg=e.message;render()}})});
   var ls=lsGet(LS_STATE);
   if(ls&&ls.v&&(ls.updatedAt||0)>(S.updatedAt||0))S=ls;
   render();
