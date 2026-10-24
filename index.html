@@ -54,14 +54,19 @@ button:not(:disabled):active{filter:brightness(1.15);transform:scale(.97)}
 .lock{min-height:80vh;display:grid;place-items:center}
 .setup2{max-width:980px}
 .add-slots{display:flex;align-items:center;gap:.5rem}
-.plist li.addrow{grid-template-columns:30px minmax(0,1fr) auto}
-.rt-lock{display:inline-grid;place-items:center;min-width:96px;min-height:34px;padding:0 .6rem;border:1px dashed var(--field);border-radius:6px;color:var(--muted);font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap}
+ul.plist li,ul.plist li.addrow{grid-template-columns:30px minmax(0,1fr) 96px 112px}
+ul.plist.nochips li,ul.plist.nochips li.addrow{grid-template-columns:30px minmax(0,1fr) 96px}.plist.nochips .ch{display:none}
+.plist li.phead{padding-top:.45rem;padding-bottom:.35rem;color:var(--muted);font-size:.72rem;font-weight:900;letter-spacing:.08em;text-transform:uppercase}
+.plist li.phead span:nth-child(2){padding-left:.2rem}.plist li.phead span:nth-child(3),.plist li.phead .ch{text-align:center}
+.rt-cell{display:grid;place-items:center}.plist li .cc{justify-self:center}
+@media (max-width:520px){ul.plist li,ul.plist li.addrow{grid-template-columns:26px minmax(0,1fr) 70px 100px;gap:.4rem}ul.plist.nochips li,ul.plist.nochips li.addrow{grid-template-columns:26px minmax(0,1fr) 70px}.rt-lock,.rt-in{min-width:0!important;width:66px!important}.plist .chip-adjuster{grid-template-columns:28px 38px 28px}}
+.rt-lock{display:inline-grid;place-items:center;min-width:80px;min-height:34px;padding:0 .6rem;border:1px dashed var(--field);border-radius:6px;color:var(--muted);font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap}
 .rt-lock.sm{min-width:0;min-height:0;padding:.05rem .4rem;font-size:.78rem;border-radius:5px}
 .plist .rt-in{border-color:var(--field)!important;background:var(--panel)!important}
-.rt-in{width:96px!important;margin:0!important;padding:.4rem .55rem!important;text-align:center;font-weight:800}
+.rt-in{width:80px!important;margin:0!important;padding:.4rem .55rem!important;text-align:center;font-weight:800}
 .cc{display:grid;justify-items:center;line-height:1}.cc strong{display:grid;place-items:center;min-width:44px;min-height:32px;border-radius:999px;background:var(--head);color:var(--head-text);font-variant-numeric:tabular-nums}.cc small{margin-top:.2rem;font-size:.66rem;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
 .nochips .cc{display:none}
-.pstart{width:70px;border:1px solid var(--field);border-radius:5px;background:var(--panel);color:var(--text);font-size:.8rem;font-weight:800;padding:.1rem .3rem;margin-left:.2rem}
+
 .setup-top{display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;padding:.25rem 0 1rem;border-bottom:1px solid var(--line-3)}
 .setup-top .eyebrow{margin:0;display:flex;align-items:center;gap:.4rem;flex-wrap:wrap}.setup-top .eyebrow .version-badge{margin-left:0}
 .setup-sub{margin:.45rem 0 0;color:var(--muted);font-size:.95rem;line-height:1.5;max-width:600px}
@@ -125,8 +130,8 @@ textarea{min-height:160px;resize:vertical;padding:1rem;line-height:1.5}
 .pmeta{display:block;font-size:.78rem;color:var(--muted);font-weight:600;padding-left:.2rem}
 .pmeta select{border:1px solid var(--field);border-radius:5px;background:var(--panel);color:var(--text);font-size:.78rem;font-weight:700;padding:.1rem .3rem}
 .rm{display:grid;place-items:center;width:28px;height:28px;padding:0;border-radius:999px;background:var(--danger);color:var(--danger-text);font-size:1rem;line-height:1}
-.add{background:#14532d;color:#bbf7d0}
-:root[data-theme="light"] .add{background:#dcfce7;color:#166534}
+.add{background:#2563eb;color:#fff;font-weight:900}.add:hover{background:#1d4ed8}
+:root[data-theme="light"] .add{background:#2563eb;color:#fff}
 .plist .addrow select{width:auto;margin:0;border:1px solid var(--field);border-radius:6px;background:var(--panel);color:var(--text);padding:.35rem .4rem;font-size:.85rem}
 .nochips .chip-adjuster{display:none}
 .player-row small em.race{font-style:normal;font-weight:800;color:#fdba74;white-space:nowrap;padding:0 .7rem;min-width:3.4em;text-align:center}
@@ -387,7 +392,7 @@ button.player-name{background:none;border:0;padding:0;text-align:left;border-rad
 <script id="app">
 (function(){
 "use strict";
-var APP_VER='1.8';
+var APP_VER='1.9';
 var FLOOR=300; // nobody's Hub Rating goes below this
 var RESET=':root{color-scheme:light;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0;font:14px/1.4 system-ui,sans-serif}img{max-width:100%}[hidden]{display:none!important}';
 var FONTS='https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap';
@@ -1172,7 +1177,7 @@ function clampStart(v){v=parseInt(v,10);return isFinite(v)?Math.min(1000,Math.ma
 function autoChips(x){var kn=known(x.name);return kn?kn.chips:chipsFor(newStart(x))}
 /* the rating and chip boxes beside the Add player field */
 function addSlots(name,typed){var kn=known(name);
-  var rt=kn?'<span class="rt-lock" title="Hub Rating, set by results">Hub '+kn.rating+'</span>':'<input class="tin rt-in" id="new-start" type="number" min="300" max="1000" inputmode="numeric" placeholder="Rating" value="'+(typed!=null?h(typed):'')+'" aria-label="Starting Hub Rating for a new player">';
+  var rt=kn?'<span class="rt-lock" title="Hub Rating, set by results">'+kn.rating+'</span>':'<input class="tin rt-in" id="new-start" type="number" min="300" max="1000" inputmode="numeric" placeholder="Rating" value="'+(typed!=null?h(typed):'')+'" aria-label="Starting Hub Rating for a new player">';
   var st=kn?kn.rating:(clampStart(typed)||500);
   return {rt:rt,cc:chipsFor(st)}}
 function ratingsHTML(inSheet){
@@ -1199,13 +1204,15 @@ function renderSetup(){
   var R=ratings(),seen={},names=[];
   REGULARS.concat(Object.keys(R).map(function(k){return R[k].name})).forEach(function(n){var k=nkey(n);if(!seen[k]&&!(DB.players[k]&&DB.players[k].hidden)){seen[k]=1;names.push(n)}});
   names.sort(function(a,b){return a.localeCompare(b)});
-  var rows=draft.players.map(function(p,i){
+  var rows='<li class="phead" aria-hidden="true"><span></span><span>Name</span><span>Rating</span><span class="ch">Chips</span></li>';
+  rows+=draft.players.map(function(p,i){
     var kn=known(p.name),auto=autoChips(p);if(!p.manual)p.chips=auto;
-    var meta=kn?'<span class="rt-lock sm">Hub '+kn.rating+'</span>'+(kn.prov?' · new':'')+(isDE?'':' · '+(p.manual?'you set '+p.chips+' · <button class="linkish" data-act="dAuto" data-p="'+p.id+'">use '+auto+'</button>':'auto '+auto+' chips'))
-      :'New player · starting rating <input class="pstart" data-start="'+p.id+'" type="number" min="300" max="1000" inputmode="numeric" value="'+newStart(p)+'" aria-label="Starting Hub Rating for '+h(p.name)+'">'+(!isDE&&p.manual?' · you set '+p.chips+' · <button class="linkish" data-act="dAuto" data-p="'+p.id+'">use '+auto+'</button>':'');
-    return '<li><button class="rm" data-act="dRemove" data-p="'+p.id+'" aria-label="Remove '+h(p.name)+'">×</button><span><input class="tin" data-name="'+p.id+'" id="n-'+p.id+'" value="'+h(p.name)+'" aria-label="Player '+(i+1)+' name" maxlength="40" list="known-names" autocomplete="off"><span class="pmeta">'+meta+'</span></span>'+
+    var note=!isDE&&p.manual?'<span class="pmeta">you set '+p.chips+' · <button class="linkish" data-act="dAuto" data-p="'+p.id+'">use '+auto+'</button></span>':'';
+    var rt=kn?'<span class="rt-lock" title="Hub Rating, set by results">'+kn.rating+'</span>':'<input class="tin rt-in pstart" data-start="'+p.id+'" type="number" min="300" max="1000" inputmode="numeric" value="'+newStart(p)+'" aria-label="Starting Hub Rating for '+h(p.name)+'">';
+    return '<li><button class="rm" data-act="dRemove" data-p="'+p.id+'" aria-label="Remove '+h(p.name)+'">×</button><span><input class="tin" data-name="'+p.id+'" id="n-'+p.id+'" value="'+h(p.name)+'" aria-label="Player '+(i+1)+' name" maxlength="40" list="known-names" autocomplete="off">'+note+'</span>'+
+      '<span class="rt-cell">'+rt+'</span>'+
       '<span class="chip-adjuster" aria-label="'+h(p.name)+' chips"><button data-act="dChips" data-p="'+p.id+'" data-d="-1" '+(p.chips<=1?'disabled':'')+' aria-label="Fewer chips">-</button><strong data-bump="d'+p.id+'">'+p.chips+'</strong><button data-act="dChips" data-p="'+p.id+'" data-d="1" '+(p.chips>=9?'disabled':'')+' aria-label="More chips">+</button></span></li>'}).join('');
-  rows+='<li class="addrow"><button class="rm add" data-act="dAdd" aria-label="Add player">+</button><input class="tin" id="new-name" placeholder="Add player" maxlength="40" list="known-names" autocomplete="off"><span class="add-slots"><span id="new-rt">'+addSlots('').rt+'</span><span class="cc" title="Chips"><strong id="new-cc">'+addSlots('').cc+'</strong><small>chips</small></span></span></li>';
+  rows+='<li class="addrow"><button class="rm add" data-act="dAdd" aria-label="Add player">+</button><input class="tin" id="new-name" placeholder="Add player" maxlength="40" list="known-names" autocomplete="off"><span class="rt-cell" id="new-rt">'+addSlots('').rt+'</span><span class="cc" title="Chips"><strong id="new-cc">'+addSlots('').cc+'</strong></span></li>';
   var out='<section class="entry-panel">'+
     '<div class="format-picker" role="group" aria-label="Tournament format"><button class="'+(isDE?'active':'')+'" data-act="dType" data-v="de">Double Elim</button><button class="'+(!isDE?'active':'')+'" data-act="dType" data-v="chip">Chip Tournament</button></div>'+
     '<div class="setup-grid">'+
