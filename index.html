@@ -52,6 +52,12 @@ button:not(:disabled):active{filter:brightness(1.15);transform:scale(.97)}
 :root[data-theme="light"] .version-badge{color:var(--muted)}
 .version-badge.live{border-color:#1f6f46;color:#bbf7d0}
 .lock{min-height:80vh;display:grid;place-items:center}
+.setup2{max-width:980px}
+.setup-top{display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;padding:.25rem 0 1rem;border-bottom:1px solid var(--line-3)}
+.setup-top .eyebrow{margin:0;display:flex;align-items:center;gap:.4rem;flex-wrap:wrap}.setup-top .eyebrow .version-badge{margin-left:0}
+.setup-sub{margin:.45rem 0 0;color:var(--muted);font-size:.95rem;line-height:1.5;max-width:600px}
+.setup-top .toolbar{display:flex;width:auto;gap:.5rem}
+.setup2 .entry-panel{margin-top:1rem}.setup2 .savebar,.setup2 .testbar{margin-top:1rem}
 .lock-card{display:grid;gap:.8rem;width:min(380px,100%);border:1px solid var(--line);border-radius:10px;background:var(--panel);padding:1.5rem}
 .lock-card h1{margin:0;color:var(--strong);font-size:2rem}.lock-card .eyebrow{margin:0}.lock-card p{margin:0}
 .lock-card .tin{margin:0;font-size:1.25rem;letter-spacing:.2em;text-align:center}
@@ -372,7 +378,7 @@ button.player-name{background:none;border:0;padding:0;text-align:left;border-rad
 <script id="app">
 (function(){
 "use strict";
-var APP_VER='1.6';
+var APP_VER='1.7';
 var FLOOR=300; // nobody's Hub Rating goes below this
 var RESET=':root{color-scheme:light;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0;font:14px/1.4 system-ui,sans-serif}img{max-width:100%}[hidden]{display:none!important}';
 var FONTS='https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap';
@@ -1201,8 +1207,9 @@ function renderSetup(){
     (ui.paste?'<textarea id="paste-box" placeholder="One player per line'+(isDE?'':', name then chips:&#10;Prajesh, 4&#10;Amit, 5')+'" spellcheck="false"></textarea><div class="entry-actions" style="margin-top:.5rem"><button data-act="dPaste">Add These Players</button></div>':'')+
     '<div class="entry-actions"><button class="primary" data-act="start" '+(err?'disabled':'')+'>'+(isDE?'Randomize &amp; Create Bracket':'Create Chip Tournament')+'</button><span>'+draft.players.length+' players'+(isDE?'':' · '+total+' chips')+'</span></div>'+
     (err?'<p class="error" style="margin-top:1rem">'+h(err)+'</p>':'')+(flash?'<p class="flash">'+h(flash)+'</p>':'')+'</section>';
-  return '<main class="shell home"><section class="intro"><p class="eyebrow">Pool tournament runner '+badge()+'</p><h1>Pool Tournament Tie Sheet Creator</h1>'+testNote()+'<p>Enter players, choose the tournament style and tables. Chips come from each player’s Hub Rating, and every result is saved'+(mode==='shared'?' live for everyone with the link.':' on this device.')+'</p>'+
-    '<div class="toolbar" style="margin-top:1rem"><button data-act="sheet" data-v="ratings">Hub Rating</button><button data-act="sheet" data-v="settings">Settings</button></div></section>'+out+'</main>';
+  var savedWhere=mode==='shared'?'Results save live for everyone with the link.':srv.on?'Results save online.':'Results save on this device.';
+  return '<main class="shell setup2"><header class="setup-top"><div><p class="eyebrow">Pool tournament runner '+badge()+'</p><p class="setup-sub">Add players, pick the format and tables, then create the tournament. Chips come from each player’s Hub Rating. '+savedWhere+'</p></div>'+
+    '<div class="toolbar"><button data-act="sheet" data-v="ratings">Hub Rating</button><button data-act="sheet" data-v="settings">Settings</button></div></header>'+testNote()+out+'</main>';
 }
 
 /* ----- double elimination ----- */
