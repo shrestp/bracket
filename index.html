@@ -372,6 +372,7 @@ button.player-name{background:none;border:0;padding:0;text-align:left;border-rad
 <script id="app">
 (function(){
 "use strict";
+var APP_VER='1.5';
 var RESET=':root{color-scheme:light;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0;font:14px/1.4 system-ui,sans-serif}img{max-width:100%}[hidden]{display:none!important}';
 var FONTS='https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap';
 var LS_STATE='pct.state.v1', LS_DRAFT='pct.draft.v1', SS_UI='pct.ui.v1';
@@ -477,6 +478,12 @@ function srvLoad(){
   srv.checking=true;
   return fetch('api.php?check&t='+Date.now(),{cache:'no-store'}).then(function(r){if(!r.ok)throw new Error('no server');return r.json()}).then(function(c){
     if(!c||!c.ok||c.php==null)throw new Error('no server');
+    if(c.pageVersion&&c.pageVersion!==APP_VER){
+      // the server has a different version of this page: load it fresh once, past any saved copies
+      var tried=null;try{tried=sessionStorage.getItem('pct.verTry')}catch(x){}
+      if(tried!==c.pageVersion){try{sessionStorage.setItem('pct.verTry',c.pageVersion)}catch(x){}location.replace(location.pathname+'?v='+encodeURIComponent(c.pageVersion)+location.hash);return new Promise(function(){})}
+      srv.stale=c.pageVersion;
+    }
     srv.on=true;
     if(!srv.pin){srv.locked=true;srv.checking=false;return}
     return srvOpen(srv.pin);
@@ -499,7 +506,7 @@ function lockHTML(){
   return '<main class="shell lock"><form class="lock-card" data-lock><p class="eyebrow">Pool tournament runner</p><h1>Enter PIN</h1><p class="muted">Type the director PIN to open the tournament. This device remembers it.</p>'+
     '<input class="tin" id="lock-pin" type="password" inputmode="numeric" autocomplete="current-password" placeholder="PIN" autofocus>'+
     (srv.lockMsg?'<p class="lock-err" role="alert">'+h(srv.lockMsg)+'</p>':'')+
-    '<button class="primary" type="submit" data-act="unlock">Open</button></form></main>';
+    '<button class="primary" type="submit" data-act="unlock">Open</button><p class="muted" style="font-size:.8rem;text-align:center">Version '+APP_VER+'</p></form></main>';
 }
 srv.pulled=0;
 function srvRefresh(){
@@ -1037,7 +1044,7 @@ function modeText(){
   return 'Results are live. Anyone you share this page with sees them update.';
 }
 function badge(){
-  return badge0()+(S&&S.test?' <span class="version-badge test">Testing</span>':'');
+  return badge0()+' <span class="version-badge" title="Version">v'+APP_VER+'</span>'+(S&&S.test?' <span class="version-badge test">Testing</span>':'');
 }
 function testNote(){return (saveBar()||'<span id="savebar"></span>')+(S&&S.test?'<p class="testbar" role="status"><b>Testing mode</b> Results here don’t count toward Hub Ratings. Turn it off in Settings.</p>':'')}
 function badge0(){
@@ -1098,6 +1105,7 @@ function settingsSheet(){
   }
   if(can)out+='<div class="sheet-sec"><h3>Testing</h3>'+toggle('testToggle',!!S.test,'Testing mode')+'<p>'+(S.test?'On: results from this tournament won’t count toward Hub Ratings. ':'Turn on to try features or practice. ')+'Turning it off part way through counts the whole tournament.</p></div>';
   if(mode==='readonly')out+='<div class="sheet-sec"><p>'+h(modeText())+'</p><button data-act="claim">I’m the Director</button></div>';
+  out+='<p class="muted" style="margin:0;font-size:.8rem;text-align:center">Version '+APP_VER+(srv.stale?' · version '+h(srv.stale)+' is on the server but this browser keeps loading an old copy':'')+'</p>';
   return '<div class="scrim" data-act="closeSheet"></div><div class="sheet" role="dialog" aria-modal="true" aria-label="Settings"><div class="sheet-head"><h2>Settings</h2><button data-act="closeSheet">Done</button></div>'+out+'</div>';
 }
 function actionSheet(title,msg,rows){
