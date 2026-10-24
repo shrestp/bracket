@@ -372,7 +372,8 @@ button.player-name{background:none;border:0;padding:0;text-align:left;border-rad
 <script id="app">
 (function(){
 "use strict";
-var APP_VER='1.5';
+var APP_VER='1.6';
+var FLOOR=300; // nobody's Hub Rating goes below this
 var RESET=':root{color-scheme:light;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0;font:14px/1.4 system-ui,sans-serif}img{max-width:100%}[hidden]{display:none!important}';
 var FONTS='https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap';
 var LS_STATE='pct.state.v1', LS_DRAFT='pct.draft.v1', SS_UI='pct.ui.v1';
@@ -550,13 +551,13 @@ function canEditRatings(){return srv.on?(srv.role==='admin'&&canAct()):canAct()}
 function ratings(){
   var key=JSON.stringify(DB);if(RC&&key===RCkey)return RC;
   var keys=Object.keys(DB.players).filter(function(k){return !DB.players[k].hidden}),R={},st={},by={},out={};
-  keys.forEach(function(k){var pp=DB.players[k];st[k]=(pp.start!=null&&isFinite(pp.start)?+pp.start:(TIERS[pp.tier]||TIERS.a).start)+(isFinite(pp.adj)?+pp.adj:0);R[k]=st[k];by[k]=[];out[k]={w:0,l:0}});
+  keys.forEach(function(k){var pp=DB.players[k];st[k]=(pp.start!=null&&isFinite(pp.start)?+pp.start:(TIERS[pp.tier]||TIERS.a).start)+(isFinite(pp.adj)?+pp.adj:0);R[k]=Math.max(FLOOR,st[k]);by[k]=[];out[k]={w:0,l:0}});
   dbGames(DB).forEach(function(x){if(!by[x[0]]||!by[x[1]])return;by[x[0]].push([x[1],1]);by[x[1]].push([x[0],0]);out[x[0]].w++;out[x[1]].l++});
   var c=Math.LN2/100,prior=1/(150*150);
   for(var it=0;it<80;it++){keys.forEach(function(k){
     var g=-(R[k]-st[k])*prior,H=-prior;
     by[k].forEach(function(o){var q=1/(1+Math.pow(2,-(R[k]-R[o[0]])/100));g+=c*(o[1]-q);H-=c*c*q*(1-q)});
-    R[k]-=g/H;
+    R[k]=Math.max(FLOOR,R[k]-g/H);
   })}
   RCraw={R:R};
   keys.forEach(function(k){var r=Math.round(R[k]),n=out[k].w+out[k].l;out[k]={key:k,name:DB.players[k].name,tier:DB.players[k].tier,start:DB.players[k].start,set:DB.players[k].adjAt||null,rating:r,games:n,w:out[k].w,l:out[k].l,prov:n<PROV,chips:chipsFor(r),level:levelFor(r)}});
@@ -909,7 +910,7 @@ function act(name,el){
     case 'stab':ui.stab=ds.v;render();break;
     case 'setTier':var k0=ds.k;if(DB.players[k0]){DB.players[k0].tier=ds.v;delete DB.players[k0].start;DB.players[k0].tierAt=Date.now();saveDB(true)}ui.sheet={t:'ratings'};ui.sheetAt=Date.now();dbChanged();break;
     case 'setNow':var kn=ds.k,nv=parseInt((document.getElementById('now-in')||{}).value,10);
-      if(!canEditRatings()||!DB.players[kn]||!(nv>=100&&nv<=1000)){flash='Enter a Hub Rating between 100 and 1000.';render();return}
+      if(!canEditRatings()||!DB.players[kn]||!(nv>=FLOOR&&nv<=1000)){flash='Enter a Hub Rating between '+FLOOR+' and 1000.';render();return}
       if(!setRatingNow(kn,nv)){flash='Couldn’t set that rating. Nothing was changed.';render();return}saveDB(true);ui.sheet={t:'ratings'};ui.sheetAt=Date.now();flash=DB.players[kn].name+' is now '+ratings()[kn].rating+'.';dbChanged();break;
     case 'adminIn':var ai=document.getElementById('admin-in'),av2=ai?ai.value.trim():'';if(!av2){if(ai)ai.focus();break}
       fetch('api.php',{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json'},body:JSON.stringify({pin:av2})}).then(function(r){return r.json().catch(function(){return {}}).then(function(j){
@@ -917,13 +918,13 @@ function act(name,el){
         else flash=r.status===429?(j.error||'Too many wrong PINs.'):'That isn’t the admin PIN.';
       })},function(){flash='Can’t reach the server.'}).then(function(){ui._keepSheet=ui.sheet;ui.sheet=ui._keepSheet;ui._keepSheet=null;render()});break;
     case 'setStart':var k1=ds.k,sv=parseInt((document.getElementById('start-in')||{}).value,10);
-      if(!DB.players[k1]||!(sv>=100&&sv<=1000)){flash='Enter a Hub Rating between 100 and 1000.';render();return}
+      if(!DB.players[k1]||!(sv>=FLOOR&&sv<=1000)){flash='Enter a Hub Rating between '+FLOOR+' and 1000.';render();return}
       DB.players[k1].start=sv;DB.players[k1].tier=sv>=575?'s':sv<425?'b':'a';DB.players[k1].tierAt=Date.now();saveDB(true);ui.sheet={t:'ratings'};ui.sheetAt=Date.now();flash=null;dbChanged();break;
     case 'delRated':var kd=ds.k;if(DB.players[kd]){DB.players[kd].hidden=true;DB.players[kd].tierAt=Date.now();saveDB(true)}flash=null;ui.sheet={t:'ratings'};ui.sheetAt=Date.now();dbChanged();break;
     case 'addRated':var an=((document.getElementById('nr-name')||{}).value||'').trim(),av=parseInt((document.getElementById('nr-val')||{}).value,10),ak=nkey(an);
       if(!an){flash='Type a name first.';render();return}
       if(DB.players[ak]&&!DB.players[ak].hidden){flash=an+' already has a Hub Rating. Tap their name to change it.';render();return}
-      if(!(av>=100&&av<=1000))av=500;
+      if(!(av>=1&&av<=1000))av=500;if(av<FLOOR)av=FLOOR;
       DB.players[ak]={name:an,tier:av>=575?'s':av<425?'b':'a',start:av,added:Date.now(),tierAt:Date.now()};saveDB(true);flash=null;dbChanged();break;
     case 'ghSave':
       var rv=(document.getElementById('gh-repo')||{}).value,tv=(document.getElementById('gh-token')||{}).value;
@@ -1115,7 +1116,7 @@ function actionSheet(title,msg,rows){
 function sheetHTML(d){
   var s=ui.sheet;if(!s)return '';
   if(s.t==='settings')return settingsSheet();
-  if(s.t==='ratings')return '<div class="scrim" data-act="closeSheet"></div><div class="sheet wide-sheet" role="dialog" aria-modal="true" aria-label="Hub Ratings"><div class="sheet-head"><h2>Hub Ratings</h2><button data-act="closeSheet">Done</button></div>'+(flash?'<p class="flash" style="margin:0">'+h(flash)+'</p>':'')+ratingsHTML(true)+(canEditRatings()?(mode==='local'?'<div class="sheet-sec"><h3>Backup</h3><div class="choices" style="grid-template-columns:1fr 1fr"><button data-act="backup">Download Backup</button><button data-act="restore">Restore Backup</button></div><input type="file" id="restore-in" accept="application/json,.json" hidden><p>A backup file holds every result and starting rating. Restoring adds it to what is here and never removes anything.</p></div>':'')+'<div class="sheet-sec"><h3>Add a player with a starting Hub Rating</h3><div class="sheet-row"><input class="tin" id="nr-name" placeholder="Name" list="known-names2" autocomplete="off"><input class="tin" id="nr-val" type="number" min="100" max="1000" inputmode="numeric" placeholder="500" style="max-width:96px"><button class="primary" data-act="addRated">Add</button></div><datalist id="known-names2">'+REGULARS.filter(function(n){return !DB.players[nkey(n)]}).map(function(n){return '<option value="'+h(n)+'">'}).join('')+'</datalist></div>':'')+'</div>';
+  if(s.t==='ratings')return '<div class="scrim" data-act="closeSheet"></div><div class="sheet wide-sheet" role="dialog" aria-modal="true" aria-label="Hub Ratings"><div class="sheet-head"><h2>Hub Ratings</h2><button data-act="closeSheet">Done</button></div>'+(flash?'<p class="flash" style="margin:0">'+h(flash)+'</p>':'')+ratingsHTML(true)+(canEditRatings()?(mode==='local'?'<div class="sheet-sec"><h3>Backup</h3><div class="choices" style="grid-template-columns:1fr 1fr"><button data-act="backup">Download Backup</button><button data-act="restore">Restore Backup</button></div><input type="file" id="restore-in" accept="application/json,.json" hidden><p>A backup file holds every result and starting rating. Restoring adds it to what is here and never removes anything.</p></div>':'')+'<div class="sheet-sec"><h3>Add a player with a starting Hub Rating</h3><div class="sheet-row"><input class="tin" id="nr-name" placeholder="Name" list="known-names2" autocomplete="off"><input class="tin" id="nr-val" type="number" min="300" max="1000" inputmode="numeric" placeholder="500" style="max-width:96px"><button class="primary" data-act="addRated">Add</button></div><datalist id="known-names2">'+REGULARS.filter(function(n){return !DB.players[nkey(n)]}).map(function(n){return '<option value="'+h(n)+'">'}).join('')+'</datalist></div>':'')+'</div>';
   if(!canAct())return '';
   if(s.t==='reset')return actionSheet(S.phase==='done'?'Start a new tournament?':'Reset this tournament?','Every result is cleared. Your player list is kept so you can edit it. Ratings keep everything already played.',[{label:S.phase==='done'?'New Tournament':'Reset Tournament',cls:'danger',attrs:'data-act="reset"'}]);
   if(s.t==='cancel'){var m=S.matches.find(function(x){return x.id===s.id});if(!m)return '';
@@ -1132,9 +1133,9 @@ function sheetHTML(d){
   if(s.t==='rated'){var rp=ratings()[s.id];if(!rp)return '';var custom=rp.start!=null;
     var startNow=custom?rp.start:(TIERS[rp.tier]||TIERS.a).start;
     if(!canEditRatings())return '';
-    return '<div class="scrim" data-act="closeSheet"></div><div class="sheet" role="dialog" aria-modal="true"><div class="sheet-head"><div><h2>'+h(rp.name)+' · Hub '+rp.rating+'</h2><p>'+rp.games+' racks, '+rp.w+' won, '+rp.l+' lost.</p></div></div>'+
-      '<div class="sheet-sec"><h3>Hub Rating now</h3><div class="sheet-row"><input class="tin" id="now-in" type="number" min="100" max="1000" inputmode="numeric" value="'+rp.rating+'" style="max-width:140px"><button class="primary" data-act="setNow" data-k="'+h(rp.key)+'">Set</button></div><p>Changes '+h(rp.name)+' to this number right away. Everyone else stays the same, and their next games move them from here.</p></div>'+
-      '<div class="sheet-sec"><h3>Starting Hub Rating</h3><p>Where they began, before any games. Changing it recalculates them from their whole history.</p><div class="sheet-row"><input class="tin" id="start-in" type="number" min="100" max="1000" inputmode="numeric" value="'+startNow+'" style="max-width:140px"><button class="primary" data-act="setStart" data-k="'+h(rp.key)+'">Save</button></div><p>Type an exact number, for example their FargoRate. 500 is average.</p></div>'+
+    return '<div class="scrim" data-act="closeSheet"></div><div class="sheet" role="dialog" aria-modal="true"><div class="sheet-head"><div><h2>'+h(rp.name)+' · Hub '+rp.rating+'</h2><p>'+rp.games+' racks, '+rp.w+' won, '+rp.l+' lost.</p></div></div>'+(flash?'<p class="flash" style="margin:0">'+h(flash)+'</p>':'')+
+      '<div class="sheet-sec"><h3>Hub Rating now</h3><div class="sheet-row"><input class="tin" id="now-in" type="number" min="300" max="1000" inputmode="numeric" value="'+rp.rating+'" style="max-width:140px"><button class="primary" data-act="setNow" data-k="'+h(rp.key)+'">Set</button></div><p>Changes '+h(rp.name)+' to this number right away. Everyone else stays the same, and their next games move them from here.</p></div>'+
+      '<div class="sheet-sec"><h3>Starting Hub Rating</h3><p>Where they began, before any games. Changing it recalculates them from their whole history.</p><div class="sheet-row"><input class="tin" id="start-in" type="number" min="300" max="1000" inputmode="numeric" value="'+startNow+'" style="max-width:140px"><button class="primary" data-act="setStart" data-k="'+h(rp.key)+'">Save</button></div><p>Type an exact number, for example their FargoRate. 500 is average.</p></div>'+
       '<div class="sheet-sec"><h3>Or use a level</h3><div class="choices">'+[['b','Beginner',400],['a','Average',500],['s','Strong',600]].map(function(t){return '<button data-act="setTier" data-k="'+h(rp.key)+'" data-v="'+t[0]+'">'+t[1]+' ('+t[2]+')'+(!custom&&rp.tier===t[0]?' ✓':'')+'</button>'}).join('')+'</div></div>'+
       '<div class="choices"><button class="danger" data-act="sheet" data-v="delrated" data-id="'+h(rp.key)+'">Remove from Hub Ratings</button><button data-act="sheet" data-v="ratings">Back</button></div></div>'}
   if(s.t==='delrated'){var dp2=DB.players[s.id];if(!dp2)return '';
