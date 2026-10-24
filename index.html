@@ -1177,7 +1177,7 @@ function clampStart(v){v=parseInt(v,10);return isFinite(v)?Math.min(1000,Math.ma
 function autoChips(x){var kn=known(x.name);return kn?kn.chips:chipsFor(newStart(x))}
 /* the rating and chip boxes beside the Add player field */
 function addSlots(name,typed){var kn=known(name);
-  var rt=kn?'<span class="rt-lock" title="Hub Rating, set by results">'+kn.rating+'</span>':'<input class="tin rt-in" id="new-start" type="number" min="300" max="1000" inputmode="numeric" placeholder="Rating" value="'+(typed!=null?h(typed):'')+'" aria-label="Starting Hub Rating for a new player">';
+  var rt=kn?'<span class="rt-lock" title="Hub Rating, set by results">'+kn.rating+'</span>':'<input class="tin rt-in" id="new-start" type="number" min="300" max="1000" inputmode="numeric" placeholder="500" value="'+(typed!=null?h(typed):'')+'" aria-label="Starting Hub Rating for a new player">';
   var st=kn?kn.rating:(clampStart(typed)||500);
   return {rt:rt,cc:chipsFor(st)}}
 function ratingsHTML(inSheet){
